@@ -216,7 +216,7 @@ function App() {
           setError('Facebook login failed')
         }
       }, {
-        scope: 'pages_read_engagement,pages_show_list,instagram_business_basic'
+        scope: 'email,public_profile'
       })
     } catch (error) {
       setError('Failed to initialize Facebook SDK: ' + error.message)
