@@ -277,9 +277,55 @@ function App() {
           setPosts(newPosts)
         }
         setHasMorePosts(true) // Always show load more in demo
+      } else if (selectedPage && accessToken) {
+        // Real Instagram API call
+        const instagramAccountId = selectedPage.instagram_business_account?.id || selectedPage.id
+        const fields = 'id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count'
+        const limit = 25
+        
+        let url = `/${instagramAccountId}/media?fields=${fields}&limit=${limit}&access_token=${accessToken}`
+        if (loadMore && nextCursor) {
+          url += `&after=${nextCursor}`
+        }
+        
+        window.FB.api(url, (response) => {
+          if (response && !response.error) {
+            const newPosts = response.data.map(post => ({
+              ...post,
+              analysis: analyzeSentiment(post.caption || '')
+            }))
+            
+            if (loadMore) {
+              setPosts(prev => [...prev, ...newPosts])
+            } else {
+              setPosts(newPosts)
+            }
+            
+            // Set pagination cursor
+            if (response.paging && response.paging.cursors && response.paging.cursors.after) {
+              setNextCursor(response.paging.cursors.after)
+              setHasMorePosts(true)
+            } else {
+              setHasMorePosts(false)
+            }
+          } else {
+            // If API fails, show demo data as fallback
+            const newPosts = demoPosts.map(post => ({
+              ...post,
+              analysis: analyzeSentiment(post.caption)
+            }))
+            
+            if (loadMore) {
+              setPosts(prev => [...prev, ...newPosts])
+            } else {
+              setPosts(newPosts)
+            }
+            setHasMorePosts(true)
+            setError('Using demo data - Instagram API permissions may need approval')
+          }
+        })
       } else {
-        // Real API call would go here
-        setError('Real Instagram API integration requires server-side implementation')
+        setError('Please login and select an Instagram account first')
       }
     } catch (error) {
       setError('Error fetching posts: ' + error.message)
@@ -302,9 +348,30 @@ function App() {
           analysis: analyzeSentiment(comment.text)
         }))
         setSelectedPostComments(prev => ({ ...prev, [postId]: analyzedComments }))
+      } else if (accessToken) {
+        // Real Instagram API call for comments
+        const fields = 'id,text,username,like_count,timestamp'
+        const url = `/${postId}/comments?fields=${fields}&access_token=${accessToken}`
+        
+        window.FB.api(url, (response) => {
+          if (response && !response.error) {
+            const analyzedComments = response.data.map(comment => ({
+              ...comment,
+              analysis: analyzeSentiment(comment.text || '')
+            }))
+            setSelectedPostComments(prev => ({ ...prev, [postId]: analyzedComments }))
+          } else {
+            // If comments API fails, show demo comments as fallback
+            const comments = demoComments[postId] || []
+            const analyzedComments = comments.map(comment => ({
+              ...comment,
+              analysis: analyzeSentiment(comment.text)
+            }))
+            setSelectedPostComments(prev => ({ ...prev, [postId]: analyzedComments }))
+          }
+        })
       } else {
-        // Real API call would go here
-        setError('Real comment fetching requires server-side implementation')
+        setError('No access token available for fetching comments')
       }
     } catch (error) {
       setError('Error fetching comments: ' + error.message)
