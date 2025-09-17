@@ -232,16 +232,23 @@ function App() {
     if (!text) return { sentiment: 'neutral', score: 0.5, emotions: { joy: 0, anger: 0, sadness: 0, fear: 0, surprise: 0 } }
     
     const emotionKeywords = {
-      joy: ['happy', 'joy', 'excited', 'amazing', 'wonderful', 'fantastic', 'great', 'awesome', 'love', 'perfect', 'brilliant', 'excellent', 'thrilled', 'delighted', 'ecstatic'],
-      anger: ['angry', 'mad', 'furious', 'hate', 'terrible', 'awful', 'worst', 'disgusting', 'annoying', 'frustrated', 'outraged', 'livid', 'irritated'],
-      sadness: ['sad', 'depressed', 'disappointed', 'heartbroken', 'crying', 'upset', 'miserable', 'lonely', 'devastated', 'grief', 'sorrow'],
-      fear: ['scared', 'afraid', 'worried', 'anxious', 'nervous', 'terrified', 'panic', 'frightened', 'concerned', 'alarmed'],
-      surprise: ['wow', 'amazing', 'incredible', 'unbelievable', 'shocking', 'surprised', 'unexpected', 'astonishing', 'remarkable']
+      joy: ['happy', 'joy', 'excited', 'amazing', 'wonderful', 'fantastic', 'great', 'awesome', 'love', 'perfect', 'brilliant', 'excellent', 'thrilled', 'delighted', 'ecstatic', 'celebrate', 'celebration', 'grateful', 'thankful', 'blessed', 'milestone', 'achievement', 'success', 'proud', 'inspiring', 'beautiful', 'incredible', 'outstanding', 'phenomenal'],
+      anger: ['angry', 'mad', 'furious', 'hate', 'terrible', 'awful', 'worst', 'disgusting', 'annoying', 'frustrated', 'outraged', 'livid', 'irritated', 'burned', 'slaughter', 'killed', 'murder', 'violence', 'cruel', 'abuse', 'torture', 'suffering', 'pain', 'injustice', 'wrong', 'evil', 'horrible', 'appalling', 'shocking', 'disturbing'],
+      sadness: ['sad', 'depressed', 'disappointed', 'heartbroken', 'crying', 'upset', 'miserable', 'lonely', 'devastated', 'grief', 'sorrow', 'tragic', 'unfortunate', 'regret', 'loss', 'dying', 'death', 'separated', 'isolation', 'stress', 'struggle', 'hardship', 'difficult', 'challenging', 'tough'],
+      fear: ['scared', 'afraid', 'worried', 'anxious', 'nervous', 'terrified', 'panic', 'frightened', 'concerned', 'alarmed', 'dangerous', 'risk', 'threat', 'warning', 'unsafe', 'harm', 'damage', 'crisis', 'emergency', 'problem', 'issue', 'trouble'],
+      surprise: ['wow', 'amazing', 'incredible', 'unbelievable', 'shocking', 'surprised', 'unexpected', 'astonishing', 'remarkable', 'extraordinary', 'stunning', 'mind-blowing', 'impressive', 'spectacular', 'breathtaking']
     }
+    
+    // Enhanced positive and negative indicators
+    const positiveIndicators = ['good', 'better', 'best', 'improve', 'progress', 'solution', 'help', 'support', 'positive', 'benefit', 'advantage', 'opportunity', 'hope', 'optimistic', 'confident', 'successful', 'effective', 'efficient', 'valuable', 'useful', 'helpful', 'beneficial', 'favorable', 'encouraging', 'uplifting', 'motivating']
+    const negativeIndicators = ['bad', 'worse', 'worst', 'problem', 'issue', 'fail', 'failure', 'decline', 'decrease', 'negative', 'harmful', 'damage', 'destroy', 'ruin', 'corrupt', 'toxic', 'poison', 'contaminate', 'pollute', 'waste', 'loss', 'deficit', 'crisis', 'disaster', 'catastrophe', 'emergency']
     
     const lowerText = text.toLowerCase()
     const emotions = { joy: 0, anger: 0, sadness: 0, fear: 0, surprise: 0 }
+    let positiveCount = 0
+    let negativeCount = 0
     
+    // Count emotional keywords
     Object.entries(emotionKeywords).forEach(([emotion, keywords]) => {
       keywords.forEach(keyword => {
         if (lowerText.includes(keyword)) {
@@ -250,34 +257,73 @@ function App() {
       })
     })
     
-    const totalEmotions = Object.values(emotions).reduce((sum, count) => sum + count, 0)
+    // Count positive/negative indicators
+    positiveIndicators.forEach(word => {
+      if (lowerText.includes(word)) positiveCount += 1
+    })
     
-    if (totalEmotions === 0) {
-      return { sentiment: 'neutral', score: 0.5, emotions }
+    negativeIndicators.forEach(word => {
+      if (lowerText.includes(word)) negativeCount += 1
+    })
+    
+    // Calculate total emotional signals
+    const totalEmotions = Object.values(emotions).reduce((sum, count) => sum + count, 0)
+    const totalIndicators = positiveCount + negativeCount
+    
+    // If no emotional signals detected, analyze context
+    if (totalEmotions === 0 && totalIndicators === 0) {
+      // Check for neutral business language
+      const businessTerms = ['meeting', 'project', 'planning', 'discussion', 'update', 'standard', 'regular', 'routine', 'process', 'operation']
+      const hasBusinessTerms = businessTerms.some(term => lowerText.includes(term))
+      
+      if (hasBusinessTerms) {
+        return { sentiment: 'neutral', score: 0.5, emotions: { joy: 0, anger: 0, sadness: 0, fear: 0, surprise: 0 } }
+      }
+      
+      // Default to slight positive for engagement posts
+      return { sentiment: 'neutral', score: 0.55, emotions: { joy: 0.1, anger: 0, sadness: 0, fear: 0, surprise: 0 } }
     }
     
+    // Normalize emotions
     const normalizedEmotions = Object.fromEntries(
-      Object.entries(emotions).map(([emotion, count]) => [emotion, count / totalEmotions])
+      Object.entries(emotions).map(([emotion, count]) => [emotion, totalEmotions > 0 ? count / totalEmotions : 0])
     )
     
-    const positiveScore = normalizedEmotions.joy + normalizedEmotions.surprise
-    const negativeScore = normalizedEmotions.anger + normalizedEmotions.sadness + normalizedEmotions.fear
+    // Calculate sentiment scores with enhanced logic
+    const joyScore = normalizedEmotions.joy + (positiveCount * 0.1)
+    const angerScore = normalizedEmotions.anger + (negativeCount * 0.1)
+    const sadnessScore = normalizedEmotions.sadness + (negativeCount * 0.05)
+    const fearScore = normalizedEmotions.fear + (negativeCount * 0.05)
+    const surpriseScore = normalizedEmotions.surprise
+    
+    const positiveScore = joyScore + surpriseScore * 0.5
+    const negativeScore = angerScore + sadnessScore + fearScore
     
     let sentiment
     let score
     
-    if (positiveScore > negativeScore) {
+    if (positiveScore > negativeScore && positiveScore > 0.1) {
       sentiment = 'positive'
-      score = 0.5 + (positiveScore * 0.5)
-    } else if (negativeScore > positiveScore) {
+      score = Math.min(0.5 + (positiveScore * 0.4), 0.95)
+    } else if (negativeScore > positiveScore && negativeScore > 0.1) {
       sentiment = 'negative'
-      score = 0.5 - (negativeScore * 0.5)
+      score = Math.max(0.5 - (negativeScore * 0.4), 0.05)
     } else {
       sentiment = 'neutral'
-      score = 0.5
+      score = 0.5 + (positiveScore - negativeScore) * 0.1
     }
     
-    return { sentiment, score, emotions: normalizedEmotions }
+    return { 
+      sentiment, 
+      score, 
+      emotions: {
+        joy: joyScore,
+        anger: angerScore,
+        sadness: sadnessScore,
+        fear: fearScore,
+        surprise: surpriseScore
+      }
+    }
   }
 
   const fetchInstagramPosts = async (loadMore = false) => {
