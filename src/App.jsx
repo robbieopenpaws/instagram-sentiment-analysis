@@ -986,9 +986,9 @@ function App() {
         </div>
 
         {/* Footer */}
-        <div style={{ textAlign: 'center', marginTop: '40px', color: 'rgba(255,255,255,0.8)' }}>
-          <p>Instagram Sentiment Analysis - Powered by AI</p>
-        </div>
+        <footer className="app-footer">
+          <p>Instagram Sentiment Analysis - Powered by <strong>Open Paws AI</strong></p>
+        </footer>
       </div>
     </div>
   )
