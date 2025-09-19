@@ -16,8 +16,9 @@ function App() {
   const [showComments, setShowComments] = useState({})
   const [activeTab, setActiveTab] = useState('overview')
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [sessionRestored, setSessionRestored] = useState(false)
 
-  // Initialize Facebook SDK
+  // Initialize Facebook SDK and restore session
   useEffect(() => {
     window.fbAsyncInit = function() {
       window.FB.init({
@@ -40,76 +41,167 @@ function App() {
     }
   }, [])
 
-  // Check if user is already logged in
-  const checkLoginStatus = () => {
-    // First check localStorage for saved session
-    const savedToken = localStorage.getItem('fb_access_token')
-    const savedUserInfo = localStorage.getItem('fb_user_info')
-    const savedPages = localStorage.getItem('fb_pages')
-    const savedSelectedPage = localStorage.getItem('fb_selected_page')
-    const savedPosts = localStorage.getItem('fb_posts')
-    
-    if (savedToken && savedUserInfo) {
-      console.log('Restoring saved Facebook session')
-      setAccessToken(savedToken)
-      setUserInfo(JSON.parse(savedUserInfo))
-      setIsLoggedIn(true)
+  // IMPROVED: Enhanced session restoration with better error handling
+  const checkLoginStatus = async () => {
+    try {
+      console.log('Checking login status and restoring session...')
       
-      if (savedPages) {
-        const parsedPages = JSON.parse(savedPages)
-        setPages(parsedPages)
+      // First check localStorage for saved session
+      const savedToken = localStorage.getItem('fb_access_token')
+      const savedUserInfo = localStorage.getItem('fb_user_info')
+      const savedPages = localStorage.getItem('fb_pages')
+      const savedSelectedPage = localStorage.getItem('fb_selected_page')
+      const savedPosts = localStorage.getItem('fb_posts')
+      const savedDemoMode = localStorage.getItem('demo_mode')
+      
+      // Check if demo mode was active
+      if (savedDemoMode === 'true') {
+        console.log('Restoring demo mode session')
+        setDemoMode(true)
+        setIsLoggedIn(true)
+        setPages(demoPages)
         
-        // Restore selected page if available
         if (savedSelectedPage) {
           const parsedSelectedPage = JSON.parse(savedSelectedPage)
           setSelectedPage(parsedSelectedPage)
-          console.log('Restored selected page:', parsedSelectedPage.name)
+          console.log('Restored demo selected page:', parsedSelectedPage.name)
           
-          // Restore posts if available
           if (savedPosts) {
             const parsedPosts = JSON.parse(savedPosts)
             setPosts(parsedPosts)
-            console.log('Restored posts:', parsedPosts.length)
+            console.log('Restored demo posts:', parsedPosts.length)
           }
         }
+        setSessionRestored(true)
+        return
       }
       
-      // Verify token is still valid
-      window.FB?.api('/me', { access_token: savedToken }, (response) => {
-        if (response.error) {
+      // Check for Facebook session
+      if (savedToken && savedUserInfo) {
+        console.log('Found saved Facebook session, validating...')
+        
+        // Verify token is still valid
+        const isValidToken = await validateFacebookToken(savedToken)
+        
+        if (isValidToken) {
+          console.log('Token is valid, restoring Facebook session')
+          setAccessToken(savedToken)
+          setUserInfo(JSON.parse(savedUserInfo))
+          setIsLoggedIn(true)
+          
+          if (savedPages) {
+            const parsedPages = JSON.parse(savedPages)
+            setPages(parsedPages)
+            console.log('Restored Facebook pages:', parsedPages.length)
+            
+            // Restore selected page if available
+            if (savedSelectedPage) {
+              const parsedSelectedPage = JSON.parse(savedSelectedPage)
+              setSelectedPage(parsedSelectedPage)
+              console.log('Restored selected page:', parsedSelectedPage.name)
+              
+              // Restore posts if available
+              if (savedPosts) {
+                const parsedPosts = JSON.parse(savedPosts)
+                setPosts(parsedPosts)
+                console.log('Restored posts:', parsedPosts.length)
+              }
+            }
+          }
+        } else {
           console.log('Saved token expired, clearing session')
           clearSession()
         }
-      })
-    } else {
-      // Check Facebook login status
-      window.FB?.getLoginStatus((response) => {
-        if (response.status === 'connected') {
-          console.log('User is logged in via Facebook')
-          handleLoginSuccess(response.authResponse)
+      } else {
+        // Check Facebook login status
+        window.FB?.getLoginStatus((response) => {
+          if (response.status === 'connected') {
+            console.log('User is logged in via Facebook')
+            handleLoginSuccess(response.authResponse)
+          }
+        })
+      }
+      
+      setSessionRestored(true)
+    } catch (error) {
+      console.error('Error during session restoration:', error)
+      setSessionRestored(true)
+    }
+  }
+
+  // IMPROVED: Token validation function
+  const validateFacebookToken = (token) => {
+    return new Promise((resolve) => {
+      window.FB?.api('/me', { access_token: token }, (response) => {
+        if (response.error) {
+          console.log('Token validation failed:', response.error)
+          resolve(false)
+        } else {
+          console.log('Token validated successfully')
+          resolve(true)
         }
       })
+    })
+  }
+
+  // IMPROVED: Enhanced session saving
+  const saveSessionToStorage = (sessionData) => {
+    try {
+      if (sessionData.accessToken) localStorage.setItem('fb_access_token', sessionData.accessToken)
+      if (sessionData.userInfo) localStorage.setItem('fb_user_info', JSON.stringify(sessionData.userInfo))
+      if (sessionData.pages) localStorage.setItem('fb_pages', JSON.stringify(sessionData.pages))
+      if (sessionData.selectedPage) localStorage.setItem('fb_selected_page', JSON.stringify(sessionData.selectedPage))
+      if (sessionData.posts) localStorage.setItem('fb_posts', JSON.stringify(sessionData.posts))
+      if (sessionData.demoMode !== undefined) localStorage.setItem('demo_mode', sessionData.demoMode.toString())
+      
+      console.log('Session saved to localStorage successfully')
+    } catch (error) {
+      console.error('Error saving session to localStorage:', error)
     }
   }
 
   // Handle successful Facebook login
-  const handleLoginSuccess = (authResponse) => {
+  const handleLoginSuccess = async (authResponse) => {
     const token = authResponse.accessToken
     setAccessToken(token)
     setIsLoggedIn(true)
     
-    // Save to localStorage for persistence
-    localStorage.setItem('fb_access_token', token)
-    
-    // Get user info
-    window.FB.api('/me', { fields: 'name,email' }, (response) => {
-      console.log('User info:', response)
-      setUserInfo(response)
-      localStorage.setItem('fb_user_info', JSON.stringify(response))
-    })
-    
-    // Get Instagram business accounts
-    fetchInstagramAccounts(token)
+    try {
+      // Get user info
+      const userResponse = await new Promise((resolve) => {
+        window.FB.api('/me', { fields: 'name,email' }, resolve)
+      })
+      
+      console.log('User info:', userResponse)
+      setUserInfo(userResponse)
+      
+      // Save session data
+      saveSessionToStorage({
+        accessToken: token,
+        userInfo: userResponse,
+        demoMode: false
+      })
+      
+      // Get Instagram business accounts
+      await fetchInstagramAccounts(token)
+      
+      // Save user session to database
+      try {
+        await dbHelpers.saveUserSession(userResponse.id, {
+          accessToken: token,
+          facebookUserId: userResponse.id,
+          selectedPageId: null,
+          selectedPageName: null,
+          expiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString() // 60 days
+        })
+        console.log('User session saved to database')
+      } catch (dbError) {
+        console.error('Error saving session to database:', dbError)
+      }
+    } catch (error) {
+      console.error('Error during login success handling:', error)
+      setError('Failed to complete login process')
+    }
   }
 
   // Facebook login handler
@@ -125,14 +217,19 @@ function App() {
     })
   }
 
-  // Fetch Instagram business accounts
-  const fetchInstagramAccounts = (token) => {
+  // IMPROVED: Enhanced Instagram accounts fetching
+  const fetchInstagramAccounts = async (token) => {
     setLoading(true)
+    setError('')
     
-    // Get Facebook pages
-    window.FB.api('/me/accounts', { access_token: token }, (response) => {
-      if (response.data) {
-        const pagePromises = response.data.map(page => {
+    try {
+      // Get Facebook pages
+      const pagesResponse = await new Promise((resolve) => {
+        window.FB.api('/me/accounts', { access_token: token }, resolve)
+      })
+      
+      if (pagesResponse.data && pagesResponse.data.length > 0) {
+        const pagePromises = pagesResponse.data.map(page => {
           return new Promise((resolve) => {
             // Check if page has Instagram account
             window.FB.api(`/${page.id}`, {
@@ -158,27 +255,162 @@ function App() {
           })
         })
         
-        Promise.all(pagePromises).then(results => {
-          const instagramAccounts = results.filter(account => account !== null)
-          console.log('Instagram accounts:', instagramAccounts)
-          setPages(instagramAccounts)
-          localStorage.setItem('fb_pages', JSON.stringify(instagramAccounts))
-          setLoading(false)
-        })
+        const results = await Promise.all(pagePromises)
+        const instagramAccounts = results.filter(account => account !== null)
+        
+        console.log('Instagram accounts found:', instagramAccounts.length)
+        setPages(instagramAccounts)
+        
+        // Save pages to storage
+        saveSessionToStorage({ pages: instagramAccounts })
+        
       } else {
-        setError('No Facebook pages found')
-        setLoading(false)
+        setError('No Facebook pages found. Please make sure you have a Facebook page connected to an Instagram Business account.')
       }
+    } catch (error) {
+      console.error('Error fetching Instagram accounts:', error)
+      setError('Failed to fetch Instagram accounts. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // IMPROVED: Enhanced page selection with better persistence
+  const handlePageSelect = async (page) => {
+    console.log('Selecting page:', page.name)
+    setSelectedPage(page)
+    setError('')
+    
+    // Save selected page to storage
+    saveSessionToStorage({ selectedPage: page })
+    
+    // Save to database if not in demo mode
+    if (!demoMode && userInfo) {
+      try {
+        await dbHelpers.saveUserSession(userInfo.id, {
+          accessToken: accessToken,
+          facebookUserId: userInfo.id,
+          selectedPageId: page.id,
+          selectedPageName: page.name,
+          expiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString()
+        })
+        console.log('Selected page saved to database')
+      } catch (error) {
+        console.error('Error saving selected page to database:', error)
+      }
+    }
+    
+    // Auto-fetch posts for the selected page
+    await fetchInstagramPosts(page)
+  }
+
+  // IMPROVED: Enhanced demo mode with better persistence
+  const handleDemoMode = () => {
+    console.log('Activating demo mode')
+    setDemoMode(true)
+    setIsLoggedIn(true)
+    setPages(demoPages)
+    setError('')
+    
+    // Save demo mode state
+    saveSessionToStorage({
+      demoMode: true,
+      pages: demoPages
     })
+  }
+
+  // IMPROVED: Enhanced posts fetching with better error handling
+  const fetchInstagramPosts = async (pageToUse = null) => {
+    const targetPage = pageToUse || selectedPage
+    
+    if (!targetPage) {
+      setError('Please select an Instagram page first')
+      return
+    }
+    
+    setLoading(true)
+    setError('')
+    
+    try {
+      if (demoMode) {
+        console.log('Loading demo posts...')
+        
+        // Add sentiment analysis to demo posts
+        const analyzedPosts = demoPosts.map(post => ({
+          ...post,
+          analysis: analyzeSentiment(post.caption)
+        }))
+        
+        setPosts(analyzedPosts)
+        
+        // Save demo posts to storage
+        saveSessionToStorage({ posts: analyzedPosts })
+        
+        // Save to database
+        try {
+          await dbHelpers.savePosts('demo_user', analyzedPosts)
+          console.log('Demo posts saved to database')
+        } catch (error) {
+          console.error('Error saving demo posts to database:', error)
+        }
+        
+      } else {
+        console.log('Fetching real Instagram posts...')
+        
+        const postsResponse = await new Promise((resolve) => {
+          window.FB.api(`/${targetPage.id}/media`, {
+            fields: 'id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count',
+            access_token: targetPage.page_access_token,
+            limit: 10
+          }, resolve)
+        })
+        
+        if (postsResponse.data && postsResponse.data.length > 0) {
+          // Add sentiment analysis to real posts
+          const analyzedPosts = postsResponse.data.map(post => ({
+            ...post,
+            analysis: analyzeSentiment(post.caption)
+          }))
+          
+          setPosts(analyzedPosts)
+          
+          // Save posts to storage
+          saveSessionToStorage({ posts: analyzedPosts })
+          
+          // Save to database
+          try {
+            await dbHelpers.savePosts(userInfo.id, analyzedPosts)
+            console.log('Real posts saved to database')
+          } catch (error) {
+            console.error('Error saving real posts to database:', error)
+          }
+          
+        } else {
+          setError('No posts found for this Instagram account')
+          setPosts([])
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching Instagram posts:', error)
+      setError('Failed to fetch Instagram posts. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Clear session
   const clearSession = () => {
+    console.log('Clearing complete session...')
+    
+    // Clear localStorage
     localStorage.removeItem('fb_access_token')
     localStorage.removeItem('fb_user_info')
     localStorage.removeItem('fb_pages')
     localStorage.removeItem('fb_selected_page')
     localStorage.removeItem('fb_posts')
+    localStorage.removeItem('demo_mode')
+    
+    // Reset state
     setAccessToken('')
     setUserInfo(null)
     setPages([])
@@ -186,14 +418,22 @@ function App() {
     setSelectedPage(null)
     setPosts([])
     setDemoMode(false)
+    setSelectedPostComments({})
+    setShowComments({})
+    setError('')
+    
     console.log('Session cleared completely')
   }
 
   // Logout handler
   const handleLogout = () => {
-    window.FB.logout(() => {
+    if (demoMode) {
       clearSession()
-    })
+    } else {
+      window.FB.logout(() => {
+        clearSession()
+      })
+    }
   }
 
   // Enhanced sentiment analysis function
@@ -349,6 +589,75 @@ function App() {
     }
   ]
 
+  // IMPROVED: Enhanced comments fetching with better persistence
+  const fetchComments = async (postId) => {
+    if (loadingComments[postId]) return
+    
+    setLoadingComments(prev => ({ ...prev, [postId]: true }))
+    setError('')
+    
+    try {
+      if (demoMode) {
+        console.log('Loading demo comments for post:', postId)
+        
+        const demoCommentsForPost = demoComments[postId] || []
+        const analyzedComments = demoCommentsForPost.map(comment => ({
+          ...comment,
+          analysis: analyzeSentiment(comment.text)
+        }))
+        
+        setSelectedPostComments(prev => ({ ...prev, [postId]: analyzedComments }))
+        setShowComments(prev => ({ ...prev, [postId]: true }))
+        
+        // Save comments to database
+        try {
+          await dbHelpers.saveComments('demo_user', postId, analyzedComments)
+          console.log('Demo comments saved to database successfully')
+        } catch (error) {
+          console.error('Error saving demo comments to database:', error)
+        }
+        
+      } else if (selectedPage && accessToken) {
+        console.log('Fetching real comments for post:', postId)
+        
+        const commentsResponse = await new Promise((resolve) => {
+          window.FB.api(`/${postId}/comments`, {
+            fields: 'id,text,username,like_count',
+            access_token: selectedPage.page_access_token,
+            limit: 50
+          }, resolve)
+        })
+        
+        if (commentsResponse.data && commentsResponse.data.length > 0) {
+          const analyzedComments = commentsResponse.data.map(comment => ({
+            ...comment,
+            analysis: analyzeSentiment(comment.text)
+          }))
+          
+          setSelectedPostComments(prev => ({ ...prev, [postId]: analyzedComments }))
+          setShowComments(prev => ({ ...prev, [postId]: true }))
+          
+          // Save comments to database
+          try {
+            await dbHelpers.saveComments(userInfo.id, postId, analyzedComments)
+            console.log('Real comments saved to database successfully')
+          } catch (error) {
+            console.error('Error saving real comments to database:', error)
+          }
+        } else {
+          console.log('No comments found for this post')
+          setSelectedPostComments(prev => ({ ...prev, [postId]: [] }))
+          setShowComments(prev => ({ ...prev, [postId]: true }))
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching comments:', error)
+      setError('Failed to fetch comments. Please try again.')
+    } finally {
+      setLoadingComments(prev => ({ ...prev, [postId]: false }))
+    }
+  }
+
   // FIXED: Complete demo comments data
   const demoComments = {
     'demo_post_1': [
@@ -380,168 +689,8 @@ function App() {
       { id: 'comment_5_2', text: 'Customer spotlights are the best! Real stories from real people.', username: 'story_lover', like_count: 18 },
       { id: 'comment_5_3', text: 'Portland represent! So proud to see local customers featured.', username: 'portland_local', like_count: 13 },
       { id: 'comment_5_4', text: 'These success stories motivate me to make better choices too!', username: 'motivated_buyer', like_count: 15 },
-      { id: 'comment_5_5', text: 'Family sustainability is so important. Thanks for making it accessible!', username: 'family_first', like_count: 10 }
+      { id: 'comment_5_5', text: 'Family sustainability is so important. Thanks for helping families like ours!', username: 'family_first', like_count: 11 }
     ]
-  }
-
-  // FIXED: Handle demo mode properly
-  const handleDemoMode = () => {
-    setDemoMode(true)
-    setPages(demoPages)
-    setError('')
-    // Auto-select first demo account
-    setTimeout(() => {
-      handlePageSelect(demoPages[0])
-    }, 500)
-  }
-
-  // FIXED: Handle page selection properly
-  const handlePageSelect = (page) => {
-    console.log('Selecting page:', page)
-    setSelectedPage(page)
-    setError('')
-    
-    // Save selected page to localStorage for persistence
-    localStorage.setItem('fb_selected_page', JSON.stringify(page))
-    console.log('Saved selected page to localStorage')
-    
-    // Auto-fetch posts after selection
-    setTimeout(() => {
-      fetchInstagramPosts()
-    }, 500)
-  }
-
-  // FIXED: Fetch posts function with real API integration
-  const fetchInstagramPosts = async () => {
-    console.log('Fetching posts, selectedPage:', selectedPage, 'demoMode:', demoMode)
-    
-    setLoading(true)
-    setPosts([])
-    setError('')
-    
-    try {
-      if (demoMode) {
-        // Demo mode - show all posts with analysis
-        const newPosts = demoPosts.map(post => ({
-          ...post,
-          analysis: analyzeSentiment(post.caption)
-        }))
-        
-        setPosts(newPosts)
-        
-        // Save posts to localStorage for persistence
-        localStorage.setItem('fb_posts', JSON.stringify(newPosts))
-        console.log('Saved posts to localStorage')
-        
-        // Save posts to database
-        try {
-          await dbHelpers.savePosts('demo_user', newPosts)
-          console.log('Posts saved to database successfully')
-        } catch (error) {
-          console.error('Error saving posts to database:', error)
-        }
-      } else if (selectedPage && accessToken) {
-        // Real Instagram API
-        window.FB.api(`/${selectedPage.id}/media`, {
-          fields: 'id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count',
-          access_token: selectedPage.page_access_token,
-          limit: 25
-        }, (response) => {
-          if (response.data) {
-            const newPosts = response.data.map(post => ({
-              ...post,
-              analysis: analyzeSentiment(post.caption || '')
-            }))
-            
-            setPosts(newPosts)
-            
-            // Save posts to localStorage for persistence
-            localStorage.setItem('fb_posts', JSON.stringify(newPosts))
-            console.log('Saved real posts to localStorage')
-            
-            // Save posts to database
-            dbHelpers.savePosts(userInfo.id, newPosts).then(() => {
-              console.log('Real posts saved to database successfully')
-            }).catch(error => {
-              console.error('Error saving real posts to database:', error)
-            })
-          } else {
-            setError('No posts found for this Instagram account')
-          }
-        })
-      } else {
-        setError('Please select an Instagram account first')
-      }
-    } catch (error) {
-      setError('Error fetching posts: ' + error.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // FIXED: Fetch comments function with real API integration
-  const fetchComments = async (postId) => {
-    console.log('Fetching comments for post:', postId)
-    
-    if (loadingComments[postId]) return
-    
-    setLoadingComments(prev => ({ ...prev, [postId]: true }))
-    
-    try {
-      if (demoMode) {
-        // Demo mode comments
-        const comments = demoComments[postId] || []
-        console.log('Found demo comments:', comments.length)
-        
-        const analyzedComments = comments.map(comment => ({
-          ...comment,
-          analysis: analyzeSentiment(comment.text)
-        }))
-        
-        setSelectedPostComments(prev => ({ ...prev, [postId]: analyzedComments }))
-        setShowComments(prev => ({ ...prev, [postId]: true }))
-        
-        // Save comments to database
-        try {
-          await dbHelpers.saveComments('demo_user', postId, analyzedComments)
-          console.log('Demo comments saved to database successfully')
-        } catch (error) {
-          console.error('Error saving demo comments to database:', error)
-        }
-      } else if (selectedPage && accessToken) {
-        // Real Instagram API for comments
-        window.FB.api(`/${postId}/comments`, {
-          fields: 'id,text,username,like_count',
-          access_token: selectedPage.page_access_token,
-          limit: 50
-        }, (response) => {
-          if (response.data) {
-            const analyzedComments = response.data.map(comment => ({
-              ...comment,
-              analysis: analyzeSentiment(comment.text)
-            }))
-            
-            setSelectedPostComments(prev => ({ ...prev, [postId]: analyzedComments }))
-            setShowComments(prev => ({ ...prev, [postId]: true }))
-            
-            // Save comments to database
-            dbHelpers.saveComments(userInfo.id, postId, analyzedComments).then(() => {
-              console.log('Real comments saved to database successfully')
-            }).catch(error => {
-              console.error('Error saving real comments to database:', error)
-            })
-          } else {
-            console.log('No comments found for this post')
-            setSelectedPostComments(prev => ({ ...prev, [postId]: [] }))
-            setShowComments(prev => ({ ...prev, [postId]: true }))
-          }
-        })
-      }
-    } catch (error) {
-      console.error('Error fetching comments:', error)
-    } finally {
-      setLoadingComments(prev => ({ ...prev, [postId]: false }))
-    }
   }
 
   // Calculate stats
@@ -550,6 +699,20 @@ function App() {
     positiveCount: posts.filter(p => p.analysis?.sentiment === 'positive').length,
     negativeCount: posts.filter(p => p.analysis?.sentiment === 'negative').length,
     neutralCount: posts.filter(p => p.analysis?.sentiment === 'neutral').length
+  }
+
+  // Show loading screen until session is restored
+  if (!sessionRestored) {
+    return (
+      <div className="app">
+        <div className="app-container">
+          <div className="loading-container">
+            <div className="loading-spinner"></div>
+            <p>Restoring your session...</p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -569,6 +732,12 @@ function App() {
               <div className="user-info">
                 <span>Welcome, {userInfo.name}!</span>
                 <button onClick={handleLogout} className="logout-btn">Logout</button>
+              </div>
+            )}
+            {isLoggedIn && demoMode && (
+              <div className="user-info">
+                <span>Demo Mode Active</span>
+                <button onClick={handleLogout} className="logout-btn">Exit Demo</button>
               </div>
             )}
           </div>
@@ -784,7 +953,7 @@ function App() {
               {selectedPage && posts.length === 0 && !loading && (
                 <div className="no-posts">
                   <p>No posts found. Click "Analyze Posts" to load data.</p>
-                  <button onClick={fetchInstagramPosts} className="analyze-btn">
+                  <button onClick={() => fetchInstagramPosts()} className="analyze-btn">
                     📊 Analyze Posts
                   </button>
                 </div>
