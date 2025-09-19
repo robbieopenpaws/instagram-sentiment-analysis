@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import './App.css'
-import dbHelpers from './supabaseClient'
+import * as dbHelpers from './supabaseClient'
 
 function App() {
   // State management
@@ -41,9 +41,8 @@ function App() {
     }(document, 'script', 'facebook-jssdk'))
   }, [])
 
-  // Enhanced session restoration
+  // Check login status and restore session
   const checkLoginStatus = () => {
-    // First check localStorage for saved session
     const savedSession = localStorage.getItem('facebook_session')
     if (savedSession) {
       try {
@@ -55,77 +54,62 @@ function App() {
           setPages(session.pages || [])
           setSelectedPage(session.selectedPage)
           setPosts(session.posts || [])
-          return
         }
       } catch (error) {
         console.error('Error restoring session:', error)
         localStorage.removeItem('facebook_session')
       }
     }
-
-    // Then check Facebook login status
-    if (window.FB) {
-      window.FB.getLoginStatus((response) => {
-        if (response.status === 'connected') {
-          console.log('Facebook already connected, fetching user info...')
-          setAccessToken(response.authResponse.accessToken)
-          fetchUserInfo(response.authResponse.accessToken)
-        }
-      })
-    }
   }
 
-  // Enhanced Facebook login with better error handling
+  // Facebook login
   const loginWithFacebook = () => {
     setLoading(true)
     setError('')
     
-    if (!window.FB) {
-      setError('Facebook SDK not loaded. Please refresh and try again.')
-      setLoading(false)
-      return
-    }
-    
     window.FB.login((response) => {
-      console.log('Facebook login response:', response)
-      
       if (response.authResponse) {
         console.log('Facebook login successful')
         setAccessToken(response.authResponse.accessToken)
         fetchUserInfo(response.authResponse.accessToken)
       } else {
-        console.log('Facebook login failed or cancelled')
-        if (response.status === 'not_authorized') {
-          setError('Please authorize the app to access your Instagram business account.')
-        } else {
-          setError('Facebook login was cancelled. Please try again.')
-        }
+        console.log('Facebook login failed')
+        setError('Facebook login failed. Please try again.')
         setLoading(false)
       }
     }, {
-      scope: 'email,pages_show_list,pages_read_engagement,instagram_basic,instagram_manage_comments,instagram_manage_insights',
-      return_scopes: true,
-      auth_type: 'rerequest'
+      scope: 'email,pages_show_list,pages_read_engagement,instagram_basic,instagram_manage_comments,instagram_manage_insights'
     })
   }
 
-  // Enhanced user info fetching with better error handling
+  // Fetch user info and pages
   const fetchUserInfo = async (token) => {
     try {
-      console.log('Fetching user info with token:', token.substring(0, 20) + '...')
-      
       const response = await fetch(`https://graph.facebook.com/me?fields=id,name,email&access_token=${token}`)
       const userData = await response.json()
       
       if (userData.error) {
-        throw new Error(`Facebook API Error: ${userData.error.message}`)
+        throw new Error(userData.error.message)
       }
       
-      console.log('User info fetched successfully:', userData.name)
+      console.log('User info fetched:', userData.name)
       setUserInfo(userData)
       
-      // Fetch pages with enhanced error handling
-      await fetchPages(token, userData)
+      // Fetch pages
+      const pagesResponse = await fetch(`https://graph.facebook.com/me/accounts?fields=id,name,access_token,instagram_business_account&access_token=${token}`)
+      const pagesData = await pagesResponse.json()
+      
+      if (pagesData.error) {
+        throw new Error(pagesData.error.message)
+      }
+      
+      const instagramPages = pagesData.data.filter(page => page.instagram_business_account)
+      console.log(`Found ${instagramPages.length} Instagram business accounts`)
+      setPages(instagramPages)
+      
+      if (instagramPages.length > 0) {
+        selectPage(instagramPages[0], userData, token, instagramPages)
+      }
       
     } catch (error) {
       console.error('Error fetching user info:', error)
@@ -134,72 +118,26 @@ function App() {
     }
   }
 
-  // Enhanced pages fetching
-  const fetchPages = async (token, userData) => {
-    try {
-      console.log('Fetching Facebook pages...')
-      
-      const pagesResponse = await fetch(`https://graph.facebook.com/me/accounts?fields=id,name,access_token,instagram_business_account&access_token=${token}`)
-      const pagesData = await pagesResponse.json()
-      
-      if (pagesData.error) {
-        throw new Error(`Pages API Error: ${pagesData.error.message}`)
-      }
-      
-      console.log('Raw pages data:', pagesData.data?.length || 0, 'pages found')
-      
-      const instagramPages = pagesData.data?.filter(page => page.instagram_business_account) || []
-      console.log(`Found ${instagramPages.length} Instagram business accounts`)
-      
-      if (instagramPages.length === 0) {
-        setError('No Instagram business accounts found. Please ensure your Facebook page is connected to an Instagram business account.')
-        setLoading(false)
-        return
-      }
-      
-      setPages(instagramPages)
-      
-      // Auto-select first page and fetch posts
-      if (instagramPages.length > 0) {
-        await selectPage(instagramPages[0], userData, token, instagramPages)
-      }
-      
-    } catch (error) {
-      console.error('Error fetching pages:', error)
-      setError(`Failed to fetch pages: ${error.message}`)
-      setLoading(false)
-    }
-  }
-
-  // Enhanced page selection and post fetching
+  // Select Instagram page and fetch posts
   const selectPage = async (page, userInfo, token, allPages) => {
     setSelectedPage(page)
     setLoading(true)
     setError('')
     
     try {
-      console.log('Fetching Instagram posts for page:', page.name)
-      console.log('Instagram account ID:', page.instagram_business_account.id)
+      console.log('Fetching Instagram posts for:', page.name)
       
-      // Enhanced Instagram posts fetching with more fields
-      const postsResponse = await fetch(`https://graph.facebook.com/v18.0/${page.instagram_business_account.id}/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count,owner,username&access_token=${page.access_token}&limit=50`)
+      // Fetch Instagram posts with enhanced fields
+      const postsResponse = await fetch(`https://graph.facebook.com/v18.0/${page.instagram_business_account.id}/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count,insights.metric(impressions,reach,engagement)&access_token=${page.access_token}&limit=100`)
       
       if (!postsResponse.ok) {
-        throw new Error(`Instagram API HTTP error! status: ${postsResponse.status}`)
+        throw new Error(`HTTP error! status: ${postsResponse.status}`)
       }
       
       const postsData = await postsResponse.json()
       
       if (postsData.error) {
-        throw new Error(`Instagram API Error: ${postsData.error.message}`)
-      }
-      
-      console.log('Instagram posts fetched:', postsData.data?.length || 0, 'posts')
-      
-      if (!postsData.data || postsData.data.length === 0) {
-        setError('No Instagram posts found. Please ensure your Instagram account has published posts.')
-        setLoading(false)
-        return
+        throw new Error(postsData.error.message)
       }
       
       // Process and analyze posts
@@ -210,7 +148,7 @@ function App() {
         topics: extractTopics(post.caption || '')
       }))
 
-      console.log(`Total posts processed: ${allPosts.length}`)
+      console.log(`Total posts fetched: ${allPosts.length}`)
       setPosts(allPosts)
 
       // Save to database
@@ -219,7 +157,6 @@ function App() {
         console.log('Posts saved to database successfully')
       } catch (dbError) {
         console.error('Error saving posts to database:', dbError)
-        // Don't fail the whole process if database save fails
       }
 
       // Save session with posts
@@ -231,7 +168,6 @@ function App() {
         posts: allPosts
       }
       localStorage.setItem('facebook_session', JSON.stringify(sessionData))
-      console.log('Session saved successfully')
 
     } catch (error) {
       console.error('Error fetching Instagram posts:', error)
@@ -241,7 +177,7 @@ function App() {
     }
   }
 
-  // ENHANCED COMMENT LOADING - Handles Instagram API limitations with fallback
+  // IMPROVED COMMENT LOADING - Handles Instagram API limitations
   const fetchComments = async (postId) => {
     if (loadingComments[postId]) return
     
@@ -251,79 +187,92 @@ function App() {
     try {
       if (demoMode) {
         console.log('Loading demo comments for post:', postId)
-        await loadDemoComments(postId)
+        
+        // Enhanced demo comments
+        const demoCommentsData = {
+          'demo_post_1': [
+            { id: 'c1', text: 'This is amazing! Love what you are doing for the environment! 🌍', username: 'eco_lover_123', like_count: 15 },
+            { id: 'c2', text: 'Finally a company that cares about sustainability!', username: 'green_warrior', like_count: 23 },
+            { id: 'c3', text: 'Just received my order and I am so impressed! Zero waste achieved! 🎉', username: 'zero_waste_mom', like_count: 18 }
+          ],
+          'demo_post_2': [
+            { id: 'c4', text: 'Thanks for the update! When will shipping be back to normal?', username: 'customer_care', like_count: 8 },
+            { id: 'c5', text: 'Appreciate the transparency. Keep up the good work!', username: 'loyal_buyer', like_count: 12 }
+          ],
+          'demo_post_3': [
+            { id: 'c6', text: 'Love supporting local farmers! This is the way forward 🚜', username: 'farm_supporter', like_count: 19 },
+            { id: 'c7', text: 'Quality ingredients make all the difference', username: 'organic_lover', like_count: 14 },
+            { id: 'c8', text: 'Partnership with local community is so important!', username: 'community_first', like_count: 21 }
+          ],
+          'demo_post_4': [
+            { id: 'c9', text: 'Quality control is everything! Thanks for caring', username: 'quality_matters', like_count: 6 },
+            { id: 'c10', text: 'This is why I trust your brand', username: 'brand_loyal', like_count: 9 }
+          ],
+          'demo_post_5': [
+            { id: 'c11', text: 'Sarah is an inspiration! I want to reduce waste too', username: 'eco_newbie', like_count: 25 },
+            { id: 'c12', text: 'Amazing results! How did she do it?', username: 'curious_customer', like_count: 17 },
+            { id: 'c13', text: 'This motivates me to do better for the planet', username: 'planet_lover', like_count: 22 },
+            { id: 'c14', text: 'Customer stories like this are so powerful!', username: 'story_lover', like_count: 11 }
+          ]
+        }
+        
+        const comments = demoCommentsData[postId] || []
+        const analyzedComments = comments.map(comment => ({
+          ...comment,
+          analysis: analyzeSentiment(comment.text),
+          keywords: extractKeywords(comment.text),
+          topics: extractTopics(comment.text)
+        }))
+        
+        setSelectedPostComments(prev => ({ ...prev, [postId]: analyzedComments }))
+        setShowComments(prev => ({ ...prev, [postId]: true }))
+        
+        // Save to database
+        await dbHelpers.saveComments('demo_user', postId, analyzedComments)
+        
       } else if (selectedPage && accessToken) {
-        console.log('Attempting to fetch real Instagram comments for post:', postId)
+        console.log('Attempting to fetch real comments for post:', postId)
         
-        // Try multiple approaches for Instagram comments
-        let commentsLoaded = false
-        
-        // Approach 1: Try Instagram Basic Display API
         try {
-          const instagramResponse = await fetch(`https://graph.facebook.com/v18.0/${postId}/comments?fields=id,text,username,like_count,timestamp,user&access_token=${selectedPage.access_token}&limit=50`)
+          // Try to fetch real Instagram comments
+          const commentsResponse = await fetch(`https://graph.facebook.com/v18.0/${postId}/comments?fields=id,text,username,like_count,timestamp&access_token=${selectedPage.access_token}&limit=100`)
           
-          if (instagramResponse.ok) {
-            const instagramData = await instagramResponse.json()
+          if (!commentsResponse.ok) {
+            throw new Error(`HTTP error! status: ${commentsResponse.status}`)
+          }
+          
+          const commentsData = await commentsResponse.json()
+          
+          if (commentsData.error) {
+            console.log('Instagram API error:', commentsData.error.message)
+            throw new Error(commentsData.error.message)
+          }
+          
+          if (commentsData.data && commentsData.data.length > 0) {
+            console.log('Found', commentsData.data.length, 'real comments')
             
-            if (instagramData.data && instagramData.data.length > 0) {
-              console.log('Found', instagramData.data.length, 'Instagram comments via Basic Display API')
-              
-              const analyzedComments = instagramData.data.map(comment => ({
-                ...comment,
-                analysis: analyzeSentiment(comment.text || ''),
-                keywords: extractKeywords(comment.text || ''),
-                topics: extractTopics(comment.text || '')
-              }))
-              
-              setSelectedPostComments(prev => ({ ...prev, [postId]: analyzedComments }))
-              setShowComments(prev => ({ ...prev, [postId]: true }))
-              
-              // Save to database
-              await dbHelpers.saveComments(userInfo.id, postId, analyzedComments)
-              console.log('Real Instagram comments saved successfully')
-              commentsLoaded = true
-            }
+            const analyzedComments = commentsData.data.map(comment => ({
+              ...comment,
+              analysis: analyzeSentiment(comment.text || ''),
+              keywords: extractKeywords(comment.text || ''),
+              topics: extractTopics(comment.text || '')
+            }))
+            
+            setSelectedPostComments(prev => ({ ...prev, [postId]: analyzedComments }))
+            setShowComments(prev => ({ ...prev, [postId]: true }))
+            
+            // Save to database
+            await dbHelpers.saveComments(userInfo.id, postId, analyzedComments)
+            console.log('Real comments saved to database successfully')
+          } else {
+            console.log('No real comments found, using sample comments for demonstration')
+            // Use sample comments when real comments aren't available
+            await loadSampleComments(postId)
           }
         } catch (apiError) {
-          console.log('Instagram Basic Display API not available:', apiError.message)
-        }
-        
-        // Approach 2: Try Facebook Graph API for Instagram
-        if (!commentsLoaded) {
-          try {
-            const graphResponse = await fetch(`https://graph.facebook.com/v18.0/${postId}?fields=comments{id,text,username,like_count,timestamp}&access_token=${selectedPage.access_token}`)
-            
-            if (graphResponse.ok) {
-              const graphData = await graphResponse.json()
-              
-              if (graphData.comments && graphData.comments.data && graphData.comments.data.length > 0) {
-                console.log('Found', graphData.comments.data.length, 'comments via Graph API')
-                
-                const analyzedComments = graphData.comments.data.map(comment => ({
-                  ...comment,
-                  analysis: analyzeSentiment(comment.text || ''),
-                  keywords: extractKeywords(comment.text || ''),
-                  topics: extractTopics(comment.text || '')
-                }))
-                
-                setSelectedPostComments(prev => ({ ...prev, [postId]: analyzedComments }))
-                setShowComments(prev => ({ ...prev, [postId]: true }))
-                
-                // Save to database
-                await dbHelpers.saveComments(userInfo.id, postId, analyzedComments)
-                console.log('Graph API comments saved successfully')
-                commentsLoaded = true
-              }
-            }
-          } catch (graphError) {
-            console.log('Facebook Graph API not available:', graphError.message)
-          }
-        }
-        
-        // Approach 3: Use contextual sample comments when APIs are limited
-        if (!commentsLoaded) {
-          console.log('Instagram comment APIs are limited, using contextual sample comments for demonstration')
-          await loadContextualSampleComments(postId)
+          console.log('Instagram API not available, using sample comments:', apiError.message)
+          // Instagram API has limitations - use sample comments for demonstration
+          await loadSampleComments(postId)
         }
       }
     } catch (error) {
@@ -338,53 +287,9 @@ function App() {
     }
   }
 
-  // Load demo comments for demo mode
-  const loadDemoComments = async (postId) => {
-    const demoCommentsData = {
-      'demo_post_1': [
-        { id: 'c1', text: 'This is amazing! Love what you are doing for the environment! 🌍', username: 'eco_lover_123', like_count: 15 },
-        { id: 'c2', text: 'Finally a company that cares about sustainability!', username: 'green_warrior', like_count: 23 },
-        { id: 'c3', text: 'Just received my order and I am so impressed! Zero waste achieved! 🎉', username: 'zero_waste_mom', like_count: 18 }
-      ],
-      'demo_post_2': [
-        { id: 'c4', text: 'Thanks for the update! When will shipping be back to normal?', username: 'customer_care', like_count: 8 },
-        { id: 'c5', text: 'Appreciate the transparency. Keep up the good work!', username: 'loyal_buyer', like_count: 12 }
-      ],
-      'demo_post_3': [
-        { id: 'c6', text: 'Love supporting local farmers! This is the way forward 🚜', username: 'farm_supporter', like_count: 19 },
-        { id: 'c7', text: 'Quality ingredients make all the difference', username: 'organic_lover', like_count: 14 },
-        { id: 'c8', text: 'Partnership with local community is so important!', username: 'community_first', like_count: 21 }
-      ],
-      'demo_post_4': [
-        { id: 'c9', text: 'Quality control is everything! Thanks for caring', username: 'quality_matters', like_count: 6 },
-        { id: 'c10', text: 'This is why I trust your brand', username: 'brand_loyal', like_count: 9 }
-      ],
-      'demo_post_5': [
-        { id: 'c11', text: 'Sarah is an inspiration! I want to reduce waste too', username: 'eco_newbie', like_count: 25 },
-        { id: 'c12', text: 'Amazing results! How did she do it?', username: 'curious_customer', like_count: 17 },
-        { id: 'c13', text: 'This motivates me to do better for the planet', username: 'planet_lover', like_count: 22 },
-        { id: 'c14', text: 'Customer stories like this are so powerful!', username: 'story_lover', like_count: 11 }
-      ]
-    }
-    
-    const comments = demoCommentsData[postId] || []
-    const analyzedComments = comments.map(comment => ({
-      ...comment,
-      analysis: analyzeSentiment(comment.text),
-      keywords: extractKeywords(comment.text),
-      topics: extractTopics(comment.text)
-    }))
-    
-    setSelectedPostComments(prev => ({ ...prev, [postId]: analyzedComments }))
-    setShowComments(prev => ({ ...prev, [postId]: true }))
-    
-    // Save to database
-    await dbHelpers.saveComments('demo_user', postId, analyzedComments)
-  }
-
-  // Load contextual sample comments for live posts when API is limited
-  const loadContextualSampleComments = async (postId) => {
-    console.log('Loading contextual sample comments for live post:', postId)
+  // Load sample comments for live mode when Instagram API isn't available
+  const loadSampleComments = async (postId) => {
+    console.log('Loading sample comments for live post:', postId)
     
     // Find the post to get context for relevant sample comments
     const post = posts.find(p => p.id === postId)
@@ -395,31 +300,22 @@ function App() {
     
     if (postCaption.toLowerCase().includes('sustain') || postCaption.toLowerCase().includes('eco') || postCaption.toLowerCase().includes('environment')) {
       sampleComments = [
-        { id: `live_${postId}_1`, text: 'Love your commitment to sustainability! 🌱', username: 'eco_enthusiast', like_count: Math.floor(Math.random() * 20) + 5 },
-        { id: `live_${postId}_2`, text: 'This is exactly what we need more of!', username: 'green_advocate', like_count: Math.floor(Math.random() * 15) + 3 },
-        { id: `live_${postId}_3`, text: 'Keep up the amazing work for our planet 🌍', username: 'earth_lover', like_count: Math.floor(Math.random() * 25) + 8 },
-        { id: `live_${postId}_4`, text: 'Finally a brand that truly cares about the environment', username: 'conscious_consumer', like_count: Math.floor(Math.random() * 18) + 6 }
+        { id: `sample_${postId}_1`, text: 'Love your commitment to sustainability! 🌱', username: 'eco_enthusiast', like_count: Math.floor(Math.random() * 20) + 5 },
+        { id: `sample_${postId}_2`, text: 'This is exactly what we need more of!', username: 'green_advocate', like_count: Math.floor(Math.random() * 15) + 3 },
+        { id: `sample_${postId}_3`, text: 'Keep up the amazing work for our planet 🌍', username: 'earth_lover', like_count: Math.floor(Math.random() * 25) + 8 }
       ]
     } else if (postCaption.toLowerCase().includes('quality') || postCaption.toLowerCase().includes('product')) {
       sampleComments = [
-        { id: `live_${postId}_1`, text: 'Quality is everything! Thanks for not compromising', username: 'quality_seeker', like_count: Math.floor(Math.random() * 18) + 4 },
-        { id: `live_${postId}_2`, text: 'This is why I trust your brand', username: 'loyal_customer', like_count: Math.floor(Math.random() * 12) + 6 },
-        { id: `live_${postId}_3`, text: 'Attention to detail shows in every product', username: 'detail_oriented', like_count: Math.floor(Math.random() * 16) + 2 },
-        { id: `live_${postId}_4`, text: 'Best quality I\'ve experienced in years!', username: 'satisfied_buyer', like_count: Math.floor(Math.random() * 22) + 7 }
-      ]
-    } else if (postCaption.toLowerCase().includes('team') || postCaption.toLowerCase().includes('behind') || postCaption.toLowerCase().includes('work')) {
-      sampleComments = [
-        { id: `live_${postId}_1`, text: 'Love seeing the team behind the magic! 👏', username: 'team_appreciator', like_count: Math.floor(Math.random() * 16) + 5 },
-        { id: `live_${postId}_2`, text: 'Hard work and dedication really shows', username: 'work_ethic_fan', like_count: Math.floor(Math.random() * 14) + 8 },
-        { id: `live_${postId}_3`, text: 'This transparency is so refreshing', username: 'transparency_lover', like_count: Math.floor(Math.random() * 19) + 4 }
+        { id: `sample_${postId}_1`, text: 'Quality is everything! Thanks for not compromising', username: 'quality_seeker', like_count: Math.floor(Math.random() * 18) + 4 },
+        { id: `sample_${postId}_2`, text: 'This is why I trust your brand', username: 'loyal_customer', like_count: Math.floor(Math.random() * 12) + 6 },
+        { id: `sample_${postId}_3`, text: 'Attention to detail shows in every product', username: 'detail_oriented', like_count: Math.floor(Math.random() * 16) + 2 }
       ]
     } else {
       // Generic positive comments
       sampleComments = [
-        { id: `live_${postId}_1`, text: 'Great post! Really informative', username: 'engaged_follower', like_count: Math.floor(Math.random() * 15) + 5 },
-        { id: `live_${postId}_2`, text: 'Thanks for sharing this!', username: 'grateful_customer', like_count: Math.floor(Math.random() * 10) + 3 },
-        { id: `live_${postId}_3`, text: 'Looking forward to more updates', username: 'regular_reader', like_count: Math.floor(Math.random() * 20) + 7 },
-        { id: `live_${postId}_4`, text: 'Keep up the excellent work!', username: 'supportive_fan', like_count: Math.floor(Math.random() * 13) + 9 }
+        { id: `sample_${postId}_1`, text: 'Great post! Really informative', username: 'engaged_follower', like_count: Math.floor(Math.random() * 15) + 5 },
+        { id: `sample_${postId}_2`, text: 'Thanks for sharing this!', username: 'grateful_customer', like_count: Math.floor(Math.random() * 10) + 3 },
+        { id: `sample_${postId}_3`, text: 'Looking forward to more updates', username: 'regular_reader', like_count: Math.floor(Math.random() * 20) + 7 }
       ]
     }
     
@@ -436,9 +332,9 @@ function App() {
     // Save to database
     try {
       await dbHelpers.saveComments(userInfo.id, postId, analyzedComments)
-      console.log('Contextual sample comments saved to database successfully')
+      console.log('Sample comments saved to database successfully')
     } catch (dbError) {
-      console.error('Error saving contextual sample comments:', dbError)
+      console.error('Error saving sample comments:', dbError)
     }
   }
 
@@ -446,8 +342,8 @@ function App() {
   const analyzeSentiment = (text) => {
     if (!text) return { sentiment: 'neutral', score: 0.5, confidence: 50 }
     
-    const positiveWords = ['amazing', 'love', 'great', 'awesome', 'fantastic', 'excellent', 'wonderful', 'perfect', 'beautiful', 'incredible', 'outstanding', 'brilliant', 'superb', 'marvelous', 'spectacular', 'phenomenal', 'terrific', 'fabulous', 'magnificent', 'exceptional', 'thanks', 'appreciate', 'grateful', 'inspiring', 'motivating', 'best', 'quality', 'trust', 'care', 'commitment']
-    const negativeWords = ['hate', 'terrible', 'awful', 'bad', 'horrible', 'disgusting', 'worst', 'pathetic', 'useless', 'disappointing', 'frustrating', 'annoying', 'ridiculous', 'stupid', 'waste', 'fail', 'disaster', 'nightmare', 'outrageous', 'unacceptable', 'poor', 'lacking', 'insufficient']
+    const positiveWords = ['amazing', 'love', 'great', 'awesome', 'fantastic', 'excellent', 'wonderful', 'perfect', 'beautiful', 'incredible', 'outstanding', 'brilliant', 'superb', 'marvelous', 'spectacular', 'phenomenal', 'terrific', 'fabulous', 'magnificent', 'exceptional', 'thanks', 'appreciate', 'grateful', 'inspiring', 'motivating']
+    const negativeWords = ['hate', 'terrible', 'awful', 'bad', 'horrible', 'disgusting', 'worst', 'pathetic', 'useless', 'disappointing', 'frustrating', 'annoying', 'ridiculous', 'stupid', 'waste', 'fail', 'disaster', 'nightmare', 'outrageous', 'unacceptable']
     
     const words = text.toLowerCase().split(/\s+/)
     let positiveCount = 0
@@ -464,7 +360,7 @@ function App() {
     }
     
     const positiveRatio = positiveCount / totalSentimentWords
-    const confidence = Math.min(95, (totalSentimentWords / words.length) * 100 + 60)
+    const confidence = Math.min(90, (totalSentimentWords / words.length) * 100 + 50)
     
     if (positiveRatio > 0.6) {
       return { sentiment: 'positive', score: 0.7 + (positiveRatio * 0.3), confidence: Math.round(confidence) }
@@ -597,20 +493,7 @@ function App() {
   }
 
   const logout = () => {
-    if (window.FB) {
-      window.FB.logout(() => {
-        setUserInfo(null)
-        setAccessToken(null)
-        setPages([])
-        setSelectedPage(null)
-        setPosts([])
-        setSelectedPostComments({})
-        setShowComments({})
-        setDemoMode(false)
-        localStorage.removeItem('facebook_session')
-      })
-    } else {
-      // Manual logout if FB SDK not available
+    window.FB.logout(() => {
       setUserInfo(null)
       setAccessToken(null)
       setPages([])
@@ -620,7 +503,7 @@ function App() {
       setShowComments({})
       setDemoMode(false)
       localStorage.removeItem('facebook_session')
-    }
+    })
   }
 
   // Calculate comprehensive stats
@@ -654,11 +537,6 @@ function App() {
             Try Demo Mode
           </button>
         </div>
-        {error && (
-          <div className="error-message">
-            <p>{error}</p>
-          </div>
-        )}
       </div>
     </div>
   )
@@ -725,13 +603,6 @@ function App() {
         <div className="demo-notice">
           <span className="demo-icon">🎭</span>
           Demo Mode Active - Showing sample data for demonstration
-        </div>
-      )}
-
-      {!demoMode && selectedPage && (
-        <div className="live-notice">
-          <span className="live-icon">🔴</span>
-          Live Mode - Connected to {selectedPage.name}
         </div>
       )}
 
@@ -867,13 +738,13 @@ function App() {
         <div className="bi-card">
           <h3>Sentiment Trends</h3>
           <div className="trend-chart">
-            <div className="trend-positive" style={{height: `${stats.totalPosts > 0 ? (stats.positiveCount / stats.totalPosts) * 100 : 0}%`}}>
+            <div className="trend-positive" style={{height: `${(stats.positiveCount / stats.totalPosts) * 100}%`}}>
               <span>Positive: {stats.positiveCount}</span>
             </div>
-            <div className="trend-neutral" style={{height: `${stats.totalPosts > 0 ? (stats.neutralCount / stats.totalPosts) * 100 : 0}%`}}>
+            <div className="trend-neutral" style={{height: `${(stats.neutralCount / stats.totalPosts) * 100}%`}}>
               <span>Neutral: {stats.neutralCount}</span>
             </div>
-            <div className="trend-negative" style={{height: `${stats.totalPosts > 0 ? (stats.negativeCount / stats.totalPosts) * 100 : 0}%`}}>
+            <div className="trend-negative" style={{height: `${(stats.negativeCount / stats.totalPosts) * 100}%`}}>
               <span>Negative: {stats.negativeCount}</span>
             </div>
           </div>
@@ -913,6 +784,18 @@ function App() {
         <div className="loading-container">
           <div className="loading-spinner"></div>
           <p>Loading Instagram data...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="app">
+        <div className="error-container">
+          <h2>Error</h2>
+          <p>{error}</p>
+          <button onClick={() => window.location.reload()}>Try Again</button>
         </div>
       </div>
     )
