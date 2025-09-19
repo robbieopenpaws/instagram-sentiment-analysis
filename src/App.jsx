@@ -448,81 +448,73 @@ function App() {
   const stats = calculateOverallStats()
 
   return (
-    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '20px' }}>
+    <div className="app">
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-          <h1 style={{ fontSize: '3rem', fontWeight: 'bold', color: 'white', marginBottom: '10px' }}>
-            📊 Instagram Sentiment Analysis
-          </h1>
-          <p style={{ fontSize: '1.2rem', color: 'rgba(255,255,255,0.8)' }}>
-            Analyze the sentiment of your Instagram posts and comments with AI-powered insights
-          </p>
-        </div>
+        <header className="app-header">
+          <div className="header-content">
+            <div className="logo">
+              <span className="logo-icon">📊</span>
+              <h1>Instagram Sentiment Analysis</h1>
+            </div>
+            <p className="tagline">
+              Analyze the sentiment of your Instagram posts and comments with AI-powered insights
+            </p>
+          </div>
+        </header>
 
         {/* Navigation Tabs */}
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '30px' }}>
-          {['overview', 'single-post', 'business-intelligence'].map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              style={{
-                padding: '12px 24px',
-                margin: '0 5px',
-                backgroundColor: activeTab === tab ? 'white' : 'rgba(255,255,255,0.2)',
-                color: activeTab === tab ? '#667eea' : 'white',
-                border: 'none',
-                borderRadius: '25px',
-                cursor: 'pointer',
-                fontWeight: 'bold',
-                textTransform: 'capitalize'
-              }}
-            >
-              {tab.replace('-', ' ')}
-            </button>
-          ))}
-        </div>
+        <nav className="tab-navigation">
+          <button 
+            onClick={() => setActiveTab('overview')}
+            className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
+          >
+            <span className="tab-icon">📊</span>
+            Overview
+          </button>
+          <button 
+            onClick={() => setActiveTab('single-post')}
+            className={`tab-btn ${activeTab === 'single-post' ? 'active' : ''}`}
+          >
+            <span className="tab-icon">🔍</span>
+            Single Post
+          </button>
+          <button 
+            onClick={() => setActiveTab('business-intelligence')}
+            className={`tab-btn ${activeTab === 'business-intelligence' ? 'active' : ''}`}
+          >
+            <span className="tab-icon">💼</span>
+            Business Intelligence
+          </button>
+        </nav>
 
         {/* Main Content */}
-        <div style={{ backgroundColor: 'white', borderRadius: '20px', padding: '30px', boxShadow: '0 20px 40px rgba(0,0,0,0.1)' }}>
+        <main className="main-content">
           
           {activeTab === 'overview' && (
             <>
               {/* Login Section */}
               {!accessToken && !demoMode && (
-                <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-                  <h2 style={{ marginBottom: '20px', color: '#333' }}>Connect Your Instagram Business Account</h2>
-                  <button
-                    onClick={loginWithFacebook}
-                    style={{
-                      backgroundColor: '#1877f2',
-                      color: 'white',
-                      padding: '15px 30px',
-                      border: 'none',
-                      borderRadius: '10px',
-                      fontSize: '16px',
-                      fontWeight: 'bold',
-                      cursor: 'pointer',
-                      marginRight: '15px'
-                    }}
-                  >
-                    🔗 Login with Facebook
-                  </button>
-                  <button
-                    onClick={() => setDemoMode(true)}
-                    style={{
-                      backgroundColor: '#9c27b0',
-                      color: 'white',
-                      padding: '15px 30px',
-                      border: 'none',
-                      borderRadius: '10px',
-                      fontSize: '16px',
-                      fontWeight: 'bold',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    🎭 Try Demo Mode
-                  </button>
+                <div className="login-container">
+                  <div className="login-card">
+                    <h2>Connect Your Instagram Business Account</h2>
+                    <div className="login-options">
+                      <button
+                        onClick={loginWithFacebook}
+                        className="facebook-login-btn"
+                      >
+                        <span className="btn-icon">🔗</span>
+                        Login with Facebook
+                      </button>
+                      <button
+                        onClick={() => setDemoMode(true)}
+                        className="demo-btn"
+                      >
+                        <span className="btn-icon">🎭</span>
+                        Try Demo Mode
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -983,7 +975,7 @@ function App() {
               )}
             </div>
           )}
-        </div>
+        </main>
 
         {/* Footer */}
         <footer className="app-footer">
