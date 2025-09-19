@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import './App.css'
+import { dbHelpers } from './supabaseClient.js'
 
 function App() {
   const [accessToken, setAccessToken] = useState('')
@@ -478,6 +479,15 @@ function App() {
           setPosts(newPosts)
         }
         setHasMorePosts(false) // No more posts to load in demo
+        
+        // Save posts to database
+        try {
+          const userId = demoMode ? 'demo_user' : (userInfo?.id || 'anonymous')
+          await dbHelpers.savePosts(userId, newPosts)
+          console.log('Posts saved to database successfully')
+        } catch (error) {
+          console.error('Error saving posts to database:', error)
+        }
       } else if (selectedPage && accessToken) {
         // Real Instagram API call
         const instagramAccountId = selectedPage.instagram_business_account?.id || selectedPage.id
@@ -489,7 +499,7 @@ function App() {
           url += `&after=${nextCursor}`
         }
         
-        window.FB.api(url, (response) => {
+        window.FB.api(url, async (response) => {
           if (response && !response.error) {
             const newPosts = response.data.map(post => ({
               ...post,
@@ -508,6 +518,15 @@ function App() {
               setHasMorePosts(true)
             } else {
               setHasMorePosts(false)
+            }
+            
+            // Save posts to database
+            try {
+              const userId = userInfo?.id || 'anonymous'
+              await dbHelpers.savePosts(userId, newPosts)
+              console.log('Real Instagram posts saved to database successfully')
+            } catch (error) {
+              console.error('Error saving real posts to database:', error)
             }
           } else {
             // If API fails, show demo data as fallback
@@ -551,9 +570,18 @@ function App() {
         }))
         setSelectedPostComments(prev => ({ ...prev, [postId]: analyzedComments }))
         setShowComments(prev => ({ ...prev, [postId]: true }))
+        
+        // Save comments to database
+        try {
+          const userId = demoMode ? 'demo_user' : (userInfo?.id || 'anonymous')
+          await dbHelpers.saveComments(userId, postId, analyzedComments)
+          console.log('Comments saved to database successfully')
+        } catch (error) {
+          console.error('Error saving comments to database:', error)
+        }
       } else if (accessToken) {
         // Real Instagram API call
-        window.FB.api(`/${postId}/comments`, { fields: 'id,text,username,like_count' }, (response) => {
+        window.FB.api(`/${postId}/comments`, { fields: 'id,text,username,like_count' }, async (response) => {
           if (response && !response.error && response.data) {
             const analyzedComments = response.data.map(comment => ({
               ...comment,
@@ -561,6 +589,15 @@ function App() {
             }))
             setSelectedPostComments(prev => ({ ...prev, [postId]: analyzedComments }))
             setShowComments(prev => ({ ...prev, [postId]: true }))
+            
+            // Save comments to database
+            try {
+              const userId = userInfo?.id || 'anonymous'
+              await dbHelpers.saveComments(userId, postId, analyzedComments)
+              console.log('Real Instagram comments saved to database successfully')
+            } catch (error) {
+              console.error('Error saving real comments to database:', error)
+            }
           } else {
             // Fallback to demo comments if API fails
             const comments = demoComments[postId] || []
@@ -641,6 +678,40 @@ function App() {
   }
 
   const stats = calculateOverallStats()
+
+  // Save business metrics to database when stats change
+  useEffect(() => {
+    if (posts.length > 0 && (demoMode || userInfo)) {
+      const saveMetrics = async () => {
+        try {
+          const userId = demoMode ? 'demo_user' : (userInfo?.id || 'anonymous')
+          const allComments = Object.values(selectedPostComments).flat()
+          
+          const metrics = {
+            totalPosts: stats.totalPosts,
+            positivePosts: stats.positiveCount,
+            negativePosts: stats.negativeCount,
+            neutralPosts: stats.neutralCount,
+            totalComments: allComments.length,
+            positiveComments: allComments.filter(c => c.analysis?.sentiment === 'positive').length,
+            negativeComments: allComments.filter(c => c.analysis?.sentiment === 'negative').length,
+            neutralComments: allComments.filter(c => c.analysis?.sentiment === 'neutral').length,
+            avgSentimentScore: stats.avgSentiment,
+            brandHealthScore: Math.round(stats.avgSentiment * 100),
+            crisisRiskLevel: stats.negativeCount > stats.positiveCount ? 'high' : stats.negativeCount > 0 ? 'medium' : 'low',
+            engagementRate: stats.totalEngagement / stats.totalPosts || 0
+          }
+          
+          await dbHelpers.saveBusinessMetrics(userId, metrics)
+          console.log('Business metrics saved to database successfully')
+        } catch (error) {
+          console.error('Error saving business metrics to database:', error)
+        }
+      }
+      
+      saveMetrics()
+    }
+  }, [posts, selectedPostComments, demoMode, userInfo])
 
   return (
     <div className="app">
