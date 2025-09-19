@@ -278,37 +278,22 @@ function App() {
     }
   }
 
-  // Generate proper image URLs with multiple fallback options
+  // Generate proper image URLs
   const getImageUrl = (post, size = 400) => {
     if (post.media_url && post.media_url.startsWith('http') && !post.media_url.includes('placeholder')) {
       return post.media_url
     }
-    // Use a hash of the post ID to ensure consistent images
-    const hash = post.id ? post.id.split('').reduce((a, b) => {
-      a = ((a << 5) - a) + b.charCodeAt(0)
-      return a & a
-    }, 0) : Math.floor(Math.random() * 1000)
-    const imageId = Math.abs(hash) % 1000
-    return `https://picsum.photos/${size}/${size}?random=${imageId}`
-  }
-
-  // Generate profile picture URL
-  const getProfileImageUrl = (pageId, size = 150) => {
-    const hash = pageId ? pageId.split('').reduce((a, b) => {
-      a = ((a << 5) - a) + b.charCodeAt(0)
-      return a & a
-    }, 0) : Math.floor(Math.random() * 1000)
-    const imageId = Math.abs(hash) % 1000 + 1000 // Different range for profiles
-    return `https://picsum.photos/${size}/${size}?random=${imageId}`
+    // Use a better placeholder service with consistent images
+    return `https://picsum.photos/${size}/${size}?random=${post.id}`
   }
 
   // Enhanced demo data with proper images and more comprehensive content
   const demoPages = [
     {
       id: 'demo_account_1',
-      name: 'Generation Vegan',
-      username: 'generation_vegan',
-      profile_picture_url: getProfileImageUrl('demo_account_1')
+      name: 'Eco-Friendly Business',
+      username: 'eco_business_demo',
+      profile_picture_url: 'https://picsum.photos/150/150?random=profile'
     }
   ]
 
@@ -317,7 +302,7 @@ function App() {
       id: 'demo_post_1',
       caption: 'Absolutely loving our new sustainable packaging! 🌱 Our customers have been so supportive and excited about our eco-friendly initiatives. Thank you for helping us make a positive impact! #sustainability #ecofriendly #grateful',
       media_type: 'IMAGE',
-      media_url: getImageUrl({ id: 'demo_post_1' }),
+      media_url: 'https://picsum.photos/400/400?random=eco1',
       permalink: 'https://instagram.com/p/demo1',
       timestamp: '2025-09-15T10:00:00+0000',
       like_count: 245,
@@ -327,7 +312,7 @@ function App() {
       id: 'demo_post_2', 
       caption: 'Having some challenges with our supply chain this week. Really frustrated with the delays, but we are working hard to resolve these issues for our customers. Your patience is appreciated! 🙏',
       media_type: 'IMAGE',
-      media_url: getImageUrl({ id: 'demo_post_2' }),
+      media_url: 'https://picsum.photos/400/400?random=supply2',
       permalink: 'https://instagram.com/p/demo2',
       timestamp: '2025-09-14T14:30:00+0000',
       like_count: 89,
@@ -337,7 +322,7 @@ function App() {
       id: 'demo_post_3',
       caption: 'Excited to announce our new product line! After months of development, we are thrilled to share these amazing innovations with you. Quality and sustainability at its finest! ✨',
       media_type: 'IMAGE',
-      media_url: getImageUrl({ id: 'demo_post_3' }),
+      media_url: 'https://picsum.photos/400/400?random=product3',
       permalink: 'https://instagram.com/p/demo3',
       timestamp: '2025-09-13T09:15:00+0000',
       like_count: 312,
@@ -791,26 +776,7 @@ function App() {
                   className={`page-card ${selectedPage?.id === page.id ? 'selected' : ''}`}
                   onClick={() => setSelectedPage(page)}
                 >
-                  <img 
-                    src={page.profile_picture_url} 
-                    alt={page.name} 
-                    className="profile-pic"
-                    onError={(e) => {
-                      // Multiple fallback attempts
-                      if (!e.target.dataset.fallbackAttempt) {
-                        e.target.dataset.fallbackAttempt = '1'
-                        e.target.src = getProfileImageUrl(page.id)
-                      } else if (e.target.dataset.fallbackAttempt === '1') {
-                        e.target.dataset.fallbackAttempt = '2'
-                        e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(page.name)}&background=6366f1&color=fff&size=150`
-                      } else {
-                        // Final fallback - hide image and show initials
-                        e.target.style.display = 'none'
-                        const initials = page.name.split(' ').map(n => n[0]).join('').toUpperCase()
-                        e.target.parentNode.innerHTML = `<div class="profile-pic-fallback">${initials}</div>` + e.target.parentNode.innerHTML.replace(/<img[^>]*>/, '')
-                      }
-                    }}
-                  />
+                  <img src={page.profile_picture_url} alt={page.name} className="profile-pic" />
                   <h4>{page.name}</h4>
                   <p>@{page.username}</p>
                 </div>
@@ -868,30 +834,7 @@ function App() {
                         alt="Post content" 
                         className="post-image"
                         onError={(e) => {
-                          // Multiple fallback attempts for post images
-                          if (!e.target.dataset.fallbackAttempt) {
-                            e.target.dataset.fallbackAttempt = '1'
-                            e.target.src = getImageUrl(post)
-                          } else if (e.target.dataset.fallbackAttempt === '1') {
-                            e.target.dataset.fallbackAttempt = '2'
-                            // Try a different image service
-                            const hash = Math.abs(post.id.split('').reduce((a, b) => {
-                              a = ((a << 5) - a) + b.charCodeAt(0)
-                              return a & a
-                            }, 0)) % 1000
-                            e.target.src = `https://source.unsplash.com/400x400/?business,${hash}`
-                          } else if (e.target.dataset.fallbackAttempt === '2') {
-                            e.target.dataset.fallbackAttempt = '3'
-                            // Try placeholder.com as final image fallback
-                            e.target.src = `https://via.placeholder.com/400x400/6366f1/ffffff?text=Post+Image`
-                          } else {
-                            // Final fallback - show a styled placeholder div
-                            e.target.style.display = 'none'
-                            const placeholder = document.createElement('div')
-                            placeholder.className = 'post-image-fallback'
-                            placeholder.innerHTML = '📷<br>Image<br>Unavailable'
-                            e.target.parentNode.insertBefore(placeholder, e.target)
-                          }
+                          e.target.src = getImageUrl(post)
                         }}
                       />
                       <div className="post-meta">
