@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 import { supabase, dbHelpers } from './supabaseClient';
 
-const FACEBOOK_APP_ID = '1588876645370831';
+const FACEBOOK_APP_ID = '760837916843241';
 
 function App() {
   const [user, setUser] = useState(null);
