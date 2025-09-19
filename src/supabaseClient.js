@@ -113,9 +113,9 @@ export const dbHelpers = {
           timestamp: post.timestamp || new Date().toISOString(),
           like_count: post.like_count || 0,
           comments_count: post.comments_count || 0,
-          sentiment_score: post.analysis?.score || 0.5,
+          sentiment_score: Math.min(9.99, Math.max(0, post.analysis?.score || 0.5)),
           sentiment_label: post.analysis?.sentiment || 'neutral',
-          confidence_score: post.analysis?.confidence || 0.5,
+          confidence_score: Math.min(9.99, Math.max(0, (post.analysis?.confidence || 50) / 100)),
           emotions: JSON.stringify(emotions),
           keywords: JSON.stringify(keywords),
           topics: JSON.stringify(topics),
@@ -127,7 +127,7 @@ export const dbHelpers = {
       const { data, error } = await supabase
         .from('instagram_posts')
         .upsert(postsToSave, {
-          onConflict: 'id,user_id'
+          onConflict: 'id'
         })
         .select()
       
@@ -162,9 +162,9 @@ export const dbHelpers = {
           text: comment.text || '',
           username: comment.username || 'anonymous',
           like_count: comment.like_count || 0,
-          sentiment_score: comment.analysis?.score || 0.5,
+          sentiment_score: Math.min(9.99, Math.max(0, comment.analysis?.score || 0.5)),
           sentiment_label: comment.analysis?.sentiment || 'neutral',
-          confidence_score: comment.analysis?.confidence || 0.5,
+          confidence_score: Math.min(9.99, Math.max(0, (comment.analysis?.confidence || 50) / 100)),
           emotions: JSON.stringify(emotions),
           keywords: JSON.stringify(keywords),
           topics: JSON.stringify(topics),
@@ -176,7 +176,7 @@ export const dbHelpers = {
       const { data, error } = await supabase
         .from('instagram_comments')
         .upsert(commentsToSave, {
-          onConflict: 'id,post_id,user_id'
+          onConflict: 'id'
         })
         .select()
       
