@@ -62,11 +62,11 @@ const analyzeAdvocacyImpact = (text) => {
     score + (lowerText.includes(keyword) ? keyword.split(' ').length : 0), 0);
   
   const scores = [
-    { category: 'anti-animal-ag', score: antiScore },
+    { category: 'anti_animal_ag', score: antiScore },
     { category: 'questioning', score: questioningScore },
     { category: 'defensive', score: defensiveScore },
-    { category: 'pro-animal-ag', score: proScore },
-    { category: 'already-vegan', score: veganScore }
+    { category: 'pro_animal_ag', score: proScore },
+    { category: 'already_vegan', score: veganScore }
   ];
   
   const highest = scores.reduce((max, current) => current.score > max.score ? current : max);
@@ -77,15 +77,15 @@ const analyzeAdvocacyImpact = (text) => {
   }
   
   // Set advocacy impact based on category
-  if (category === 'anti-animal-ag') {
-    advocacy_impact = 'very-high';
+  if (category === 'anti_animal_ag') {
+    advocacy_impact = 'very_high';
     conversion_potential = 0.9;
     resistance_level = 0.1;
   } else if (category === 'questioning') {
     advocacy_impact = 'high';
     conversion_potential = 0.7;
     resistance_level = 0.2;
-  } else if (category === 'already-vegan') {
+  } else if (category === 'already_vegan') {
     advocacy_impact = 'medium';
     conversion_potential = 0.1;
     resistance_level = 0.0;
@@ -93,15 +93,15 @@ const analyzeAdvocacyImpact = (text) => {
     advocacy_impact = 'low';
     conversion_potential = 0.2;
     resistance_level = 0.8;
-  } else if (category === 'pro-animal-ag') {
-    advocacy_impact = 'very-low';
+  } else if (category === 'pro_animal_ag') {
+    advocacy_impact = 'very_low';
     conversion_potential = 0.1;
     resistance_level = 0.9;
   }
 
   // Ensure all values are valid for database
-  const validCategories = ['anti-animal-ag', 'questioning', 'defensive', 'pro-animal-ag', 'already-vegan'];
-  const validImpacts = ['very-low', 'low', 'medium', 'high', 'very-high'];
+  const validCategories = ['anti_animal_ag', 'questioning', 'defensive', 'pro_animal_ag', 'already_vegan'];
+  const validImpacts = ['very_low', 'low', 'medium', 'high', 'very_high'];
   
   // Safety checks
   if (!validCategories.includes(category)) {
