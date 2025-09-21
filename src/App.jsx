@@ -255,6 +255,8 @@ function App() {
     }
 
     setLoading(true);
+    setAnalyzing(true);
+    setProgress(0);
     setError('');
     
     try {
@@ -366,38 +368,63 @@ ${recentPosts}
 Try using a more recent post URL, or contact support if this is a recent post.`);
       }
       
-      // Get ALL comments for this post using pagination
+      // Get ALL comments for this post using pagination with error handling
+      setProgress(20);
       let allComments = [];
       let nextUrl = `https://graph.facebook.com/v18.0/${targetPost.id}/comments?fields=text,username,timestamp&limit=100&access_token=${user.accessToken}`;
+      let pageCount = 0;
+      const maxPages = 20; // Limit to prevent infinite loops and memory issues
       
-      console.log(`Fetching all comments for post with ${targetPost.comments_count} total comments...`);
+      console.log(`Fetching comments for post with ${targetPost.comments_count} total comments...`);
       
-      while (nextUrl) {
-        const commentsResponse = await fetch(nextUrl);
-        const commentsData = await commentsResponse.json();
-        
-        if (commentsData.data) {
-          allComments = allComments.concat(commentsData.data);
-          console.log(`Fetched ${commentsData.data.length} comments, total so far: ${allComments.length}`);
+      try {
+        while (nextUrl && pageCount < maxPages) {
+          try {
+            setProgress(20 + (pageCount / maxPages) * 60); // Progress from 20% to 80%
+            
+            const commentsResponse = await fetch(nextUrl);
+            
+            if (!commentsResponse.ok) {
+              console.error('Comments API response not ok:', commentsResponse.status);
+              break;
+            }
+            
+            const commentsData = await commentsResponse.json();
+            
+            if (commentsData.error) {
+              console.error('Comments API error:', commentsData.error);
+              break;
+            }
+            
+            if (commentsData.data && Array.isArray(commentsData.data)) {
+              allComments = allComments.concat(commentsData.data);
+              console.log(`Page ${pageCount + 1}: Fetched ${commentsData.data.length} comments, total: ${allComments.length}`);
+            }
+            
+            // Check if there are more comments to fetch
+            if (commentsData.paging && commentsData.paging.next && commentsData.data.length > 0) {
+              nextUrl = commentsData.paging.next;
+              pageCount++;
+              // Add delay to respect rate limits
+              await new Promise(resolve => setTimeout(resolve, 300));
+            } else {
+              nextUrl = null;
+            }
+            
+          } catch (pageError) {
+            console.error('Error fetching comments page:', pageError);
+            break;
+          }
         }
         
-        // Check if there are more comments to fetch
-        if (commentsData.paging && commentsData.paging.next) {
-          nextUrl = commentsData.paging.next;
-          // Add small delay to respect rate limits
-          await new Promise(resolve => setTimeout(resolve, 200));
-        } else {
-          nextUrl = null;
-        }
+        console.log(`Successfully fetched ${allComments.length} total comments from ${pageCount} pages`);
         
-        // Safety check to prevent infinite loops
-        if (allComments.length >= 2000) {
-          console.log('Reached safety limit of 2000 comments');
-          break;
-        }
+      } catch (fetchError) {
+        console.error('Error in comment fetching process:', fetchError);
+        // Continue with whatever comments we have
       }
       
-      console.log(`Successfully fetched ${allComments.length} total comments`);
+      setProgress(90);
       
       const post = {
         id: targetPost.id,
@@ -410,12 +437,19 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
         comments: allComments
       };
       
+      console.log(`Created post object with ${allComments.length} comments`);
+      
       setPosts([post]);
+      setProgress(100);
       setLoading(false);
+      setAnalyzing(false);
       
     } catch (err) {
+      console.error('Error in loadInstagramPostFromUrl:', err);
       setError('Failed to load post: ' + err.message);
       setLoading(false);
+      setAnalyzing(false);
+      setProgress(0);
     }
   };
 
@@ -770,11 +804,21 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
                 />
                 <button 
                   onClick={loadInstagramPostFromUrl}
-                  disabled={loading}
+                  disabled={loading || analyzing}
                   className="load-post-btn"
                 >
-                  {loading ? 'Loading...' : 'Analyze Post'}
+                  {analyzing ? `Analyzing... ${progress}%` : loading ? 'Loading...' : 'Analyze Post'}
                 </button>
+              </div>
+              
+              {analyzing && (
+                <div className="progress-section">
+                  <div className="progress-bar">
+                    <div className="progress-fill" style={{ width: `${progress}%` }}></div>
+                  </div>
+                  <p>Fetching and analyzing comments... {progress}%</p>
+                </div>
+              )}
               </div>
             </div>
 
