@@ -462,8 +462,7 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
                 comment_id: comment.id || `${targetPost.id}_${Date.now()}_${Math.random()}`,
                 text: comment.text || '',
                 username: comment.username || 'unknown',
-                timestamp: comment.timestamp || new Date().toISOString(),
-                chunk_number: chunkCount + 1
+                timestamp: comment.timestamp || new Date().toISOString()
               }));
               
               const { error: insertError } = await supabase
