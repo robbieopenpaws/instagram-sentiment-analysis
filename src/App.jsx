@@ -366,9 +366,38 @@ ${recentPosts}
 Try using a more recent post URL, or contact support if this is a recent post.`);
       }
       
-      // Get comments for this post
-      const commentsResponse = await fetch(`https://graph.facebook.com/v18.0/${targetPost.id}/comments?fields=text,username,timestamp&limit=100&access_token=${user.accessToken}`);
-      const commentsData = await commentsResponse.json();
+      // Get ALL comments for this post using pagination
+      let allComments = [];
+      let nextUrl = `https://graph.facebook.com/v18.0/${targetPost.id}/comments?fields=text,username,timestamp&limit=100&access_token=${user.accessToken}`;
+      
+      console.log(`Fetching all comments for post with ${targetPost.comments_count} total comments...`);
+      
+      while (nextUrl) {
+        const commentsResponse = await fetch(nextUrl);
+        const commentsData = await commentsResponse.json();
+        
+        if (commentsData.data) {
+          allComments = allComments.concat(commentsData.data);
+          console.log(`Fetched ${commentsData.data.length} comments, total so far: ${allComments.length}`);
+        }
+        
+        // Check if there are more comments to fetch
+        if (commentsData.paging && commentsData.paging.next) {
+          nextUrl = commentsData.paging.next;
+          // Add small delay to respect rate limits
+          await new Promise(resolve => setTimeout(resolve, 200));
+        } else {
+          nextUrl = null;
+        }
+        
+        // Safety check to prevent infinite loops
+        if (allComments.length >= 2000) {
+          console.log('Reached safety limit of 2000 comments');
+          break;
+        }
+      }
+      
+      console.log(`Successfully fetched ${allComments.length} total comments`);
       
       const post = {
         id: targetPost.id,
@@ -378,7 +407,7 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
         comments_count: targetPost.comments_count || 0,
         timestamp: targetPost.timestamp,
         url: postUrl,
-        comments: commentsData.data || []
+        comments: allComments
       };
       
       setPosts([post]);
@@ -573,16 +602,32 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
         const post = filteredPosts[i];
         
         try {
-          // Get comments for this post with rate limiting
+          // Get ALL comments for this post with pagination and rate limiting
           await new Promise(resolve => setTimeout(resolve, 300)); // Rate limiting
           
-          const commentsResponse = await fetch(`https://graph.facebook.com/v18.0/${post.id}/comments?fields=text,username,timestamp&limit=100&access_token=${user.accessToken}`);
-          const commentsData = await commentsResponse.json();
+          let allComments = [];
+          let nextUrl = `https://graph.facebook.com/v18.0/${post.id}/comments?fields=text,username,timestamp&limit=100&access_token=${user.accessToken}`;
           
-          if (commentsData.data && commentsData.data.length > 0) {
+          while (nextUrl && allComments.length < 1000) { // Limit to 1000 comments per post for performance
+            const commentsResponse = await fetch(nextUrl);
+            const commentsData = await commentsResponse.json();
+            
+            if (commentsData.data) {
+              allComments = allComments.concat(commentsData.data);
+            }
+            
+            if (commentsData.paging && commentsData.paging.next) {
+              nextUrl = commentsData.paging.next;
+              await new Promise(resolve => setTimeout(resolve, 200)); // Rate limiting between pages
+            } else {
+              nextUrl = null;
+            }
+          }
+          
+          if (allComments && allComments.length > 0) {
             const postWithComments = {
               ...post,
-              comments: commentsData.data
+              comments: allComments
             };
             
             const analysis = analyzePost(postWithComments);
