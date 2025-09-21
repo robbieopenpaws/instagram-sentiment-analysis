@@ -288,35 +288,70 @@ function App() {
         throw new Error('No Instagram Business account found. Please connect your Instagram Business account to your Facebook page.');
       }
       
-      // Get Instagram media using the shortcode
-      const mediaResponse = await fetch(`https://graph.facebook.com/v18.0/${instagramAccountId}/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&access_token=${user.accessToken}`);
+      // Get Instagram media - fetch more posts to increase chances of finding the target
+      const mediaResponse = await fetch(`https://graph.facebook.com/v18.0/${instagramAccountId}/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=100&access_token=${user.accessToken}`);
       const mediaData = await mediaResponse.json();
       
       if (!mediaData.data) {
         throw new Error('Could not fetch Instagram posts. Make sure your Instagram account is connected.');
       }
       
-      // Debug: Log available posts
-      console.log('Available posts:', mediaData.data.map(post => ({
-        id: post.id,
-        permalink: post.permalink,
-        caption: post.caption?.substring(0, 50) + '...'
-      })));
+      console.log('Total posts found:', mediaData.data.length);
       console.log('Looking for shortcode:', shortcode);
       
-      // Find the post that matches our URL
-      const targetPost = mediaData.data.find(post => post.permalink && post.permalink.includes(shortcode));
+      // Try multiple methods to find the post
+      let targetPost = null;
       
+      // Method 1: Try permalink matching (if available)
       if (!targetPost) {
-        // More detailed error message
-        const availableShortcodes = mediaData.data
-          .filter(post => post.permalink)
-          .map(post => {
-            const match = post.permalink.match(/\/p\/([A-Za-z0-9_-]+)/);
-            return match ? match[1] : 'unknown';
-          });
+        targetPost = mediaData.data.find(post => post.permalink && post.permalink.includes(shortcode));
+        if (targetPost) console.log('Found post via permalink matching');
+      }
+      
+      // Method 2: Try to get individual post data using Instagram's media endpoint
+      if (!targetPost) {
+        try {
+          // Try to construct the media ID from shortcode (Instagram's internal method)
+          for (const post of mediaData.data) {
+            try {
+              // Get detailed post info which might include the shortcode
+              const detailResponse = await fetch(`https://graph.facebook.com/v18.0/${post.id}?fields=id,caption,media_type,permalink,timestamp,like_count,comments_count,shortcode&access_token=${user.accessToken}`);
+              const detailData = await detailResponse.json();
+              
+              if (detailData.shortcode === shortcode || 
+                  (detailData.permalink && detailData.permalink.includes(shortcode))) {
+                targetPost = detailData;
+                console.log('Found post via detailed lookup');
+                break;
+              }
+            } catch (err) {
+              // Continue to next post
+            }
+          }
+        } catch (err) {
+          console.log('Detailed lookup failed:', err);
+        }
+      }
+      
+      // Method 3: If still not found, show available posts for manual selection
+      if (!targetPost) {
+        const recentPosts = mediaData.data.slice(0, 10).map((post, index) => {
+          const date = new Date(post.timestamp).toLocaleDateString();
+          const caption = post.caption ? post.caption.substring(0, 100) + '...' : 'No caption';
+          return `${index + 1}. ${date} - ${caption}`;
+        }).join('\n');
         
-        throw new Error(`Post not found. Looking for shortcode "${shortcode}" but found: ${availableShortcodes.slice(0, 5).join(', ')}${availableShortcodes.length > 5 ? '...' : ''}. Make sure this post belongs to your Instagram account and is public.`);
+        throw new Error(`Post with shortcode "${shortcode}" not found in your recent posts. 
+
+This might happen because:
+1. The post is older than your recent 100 posts
+2. The post URL format is different
+3. The Instagram API permissions need adjustment
+
+Your recent posts:
+${recentPosts}
+
+Try using a more recent post URL, or contact support if this is a recent post.`);
       }
       
       // Get comments for this post
