@@ -457,13 +457,23 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
               // Store this chunk in Supabase immediately
               setCurrentOperation(`Storing chunk ${chunkCount + 1} in database...`);
               
-              const commentsToStore = chunkComments.map(comment => ({
-                post_id: targetPost.id,
-                comment_id: comment.id || `${targetPost.id}_${Date.now()}_${Math.random()}`,
-                text: comment.text || '',
-                username: comment.username || 'unknown',
-                timestamp: comment.timestamp || new Date().toISOString()
-              }));
+              const commentsToStore = chunkComments.map((comment, index) => {
+                // Quick sentiment analysis for database storage
+                const sentiment = analyzeAdvocacyImpact(comment.text || '');
+                
+                return {
+                  post_id: targetPost.id,
+                  comment_id: comment.id || `${targetPost.id}_${Date.now()}_${index}`,
+                  text: comment.text || '',
+                  username: comment.username || 'unknown',
+                  timestamp: comment.timestamp || new Date().toISOString(),
+                  advocacy_category: sentiment.category || 'neutral',
+                  sentiment_score: sentiment.score || 0,
+                  advocacy_impact: sentiment.advocacy_impact || 'low',
+                  conversion_potential: sentiment.conversion_potential || 0,
+                  resistance_level: sentiment.resistance_level || 0
+                };
+              });
               
               const { error: insertError } = await supabase
                 .from('advocacy_comments')
