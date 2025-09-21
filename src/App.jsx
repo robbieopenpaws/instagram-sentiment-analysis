@@ -819,7 +819,6 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
                   <p>Fetching and analyzing comments... {progress}%</p>
                 </div>
               )}
-              </div>
             </div>
 
             <div className="settings-section">
