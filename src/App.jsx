@@ -174,7 +174,7 @@ function App() {
     setLoading(true);
     setError('');
     
-    window.FB.login(async function(response) {
+    window.FB.login(function(response) {
       if (response.authResponse) {
         const userData = {
           id: response.authResponse.userID,
@@ -182,9 +182,13 @@ function App() {
         };
         setUser(userData);
         
-        // Fetch available Instagram accounts
-        await fetchAvailableAccounts(userData.accessToken);
-        setLoading(false);
+        // Fetch available Instagram accounts after setting user
+        fetchAvailableAccounts(userData.accessToken).then(() => {
+          setLoading(false);
+        }).catch((err) => {
+          console.error('Error fetching accounts:', err);
+          setLoading(false);
+        });
       } else {
         setError('Facebook login failed. Please try again.');
         setLoading(false);
