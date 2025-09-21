@@ -237,30 +237,85 @@ function App() {
       return;
     }
 
+    if (!user || !user.accessToken) {
+      setError('Please login with Facebook first');
+      return;
+    }
+
     setLoading(true);
     setError('');
     
     try {
-      // Demo post data (in real implementation, this would fetch from Instagram API)
-      const demoPost = {
-        id: '1',
-        caption: 'Check out this amazing plant-based meal! 🌱 #vegan #plantbased',
-        media_type: 'IMAGE',
-        like_count: 45,
-        comments_count: 12,
-        timestamp: '2024-01-15T10:30:00Z',
+      // Extract post ID from Instagram URL
+      const postIdMatch = postUrl.match(/\/p\/([A-Za-z0-9_-]+)/);
+      if (!postIdMatch) {
+        throw new Error('Invalid Instagram post URL. Please use format: https://www.instagram.com/p/POST_ID/');
+      }
+      
+      const shortcode = postIdMatch[1];
+      
+      // First, get Instagram Business Account ID
+      const pagesResponse = await fetch(`https://graph.facebook.com/v18.0/me/accounts?access_token=${user.accessToken}`);
+      const pagesData = await pagesResponse.json();
+      
+      if (!pagesData.data || pagesData.data.length === 0) {
+        throw new Error('No Facebook pages found. You need a Facebook page connected to an Instagram Business account.');
+      }
+      
+      let instagramAccountId = null;
+      
+      // Find Instagram Business Account
+      for (const page of pagesData.data) {
+        try {
+          const igResponse = await fetch(`https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account&access_token=${user.accessToken}`);
+          const igData = await igResponse.json();
+          
+          if (igData.instagram_business_account) {
+            instagramAccountId = igData.instagram_business_account.id;
+            break;
+          }
+        } catch (err) {
+          console.log('No Instagram account for page:', page.name);
+        }
+      }
+      
+      if (!instagramAccountId) {
+        throw new Error('No Instagram Business account found. Please connect your Instagram Business account to your Facebook page.');
+      }
+      
+      // Get Instagram media using the shortcode
+      const mediaResponse = await fetch(`https://graph.facebook.com/v18.0/${instagramAccountId}/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&access_token=${user.accessToken}`);
+      const mediaData = await mediaResponse.json();
+      
+      if (!mediaData.data) {
+        throw new Error('Could not fetch Instagram posts. Make sure your Instagram account is connected.');
+      }
+      
+      // Find the post that matches our URL
+      const targetPost = mediaData.data.find(post => post.permalink && post.permalink.includes(shortcode));
+      
+      if (!targetPost) {
+        throw new Error('Post not found. Make sure this post belongs to your Instagram account and is public.');
+      }
+      
+      // Get comments for this post
+      const commentsResponse = await fetch(`https://graph.facebook.com/v18.0/${targetPost.id}/comments?fields=text,username,timestamp&limit=100&access_token=${user.accessToken}`);
+      const commentsData = await commentsResponse.json();
+      
+      const post = {
+        id: targetPost.id,
+        caption: targetPost.caption || '',
+        media_type: targetPost.media_type,
+        like_count: targetPost.like_count || 0,
+        comments_count: targetPost.comments_count || 0,
+        timestamp: targetPost.timestamp,
         url: postUrl,
-        comments: [
-          { text: 'This looks amazing! Going vegan after seeing this', username: 'user1' },
-          { text: 'Disgusting, animals are meant to be eaten', username: 'user2' },
-          { text: 'Interesting perspective, makes me think', username: 'user3' },
-          { text: 'Personal choice, stop being preachy', username: 'user4' },
-          { text: 'Been vegan for 5 years, love this message!', username: 'user5' }
-        ]
+        comments: commentsData.data || []
       };
       
-      setPosts([demoPost]);
+      setPosts([post]);
       setLoading(false);
+      
     } catch (err) {
       setError('Failed to load post: ' + err.message);
       setLoading(false);
@@ -316,21 +371,169 @@ function App() {
 
   // Run account-wide analysis
   const runAccountWideAnalysis = async () => {
+    if (!user || !user.accessToken) {
+      setError('Please login with Facebook first');
+      return;
+    }
+
     setAnalyzing(true);
     setProgress(0);
     setError('');
     
     try {
-      // Simulate progress
-      for (let i = 0; i <= 100; i += 10) {
-        setProgress(i);
-        await new Promise(resolve => setTimeout(resolve, 200));
+      setProgress(10);
+      
+      // Get Instagram Business Account ID
+      const pagesResponse = await fetch(`https://graph.facebook.com/v18.0/me/accounts?access_token=${user.accessToken}`);
+      const pagesData = await pagesResponse.json();
+      
+      if (!pagesData.data || pagesData.data.length === 0) {
+        throw new Error('No Facebook pages found. You need a Facebook page connected to an Instagram Business account.');
       }
       
-      // Demo account analysis data
+      let instagramAccountId = null;
+      
+      for (const page of pagesData.data) {
+        try {
+          const igResponse = await fetch(`https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account&access_token=${user.accessToken}`);
+          const igData = await igResponse.json();
+          
+          if (igData.instagram_business_account) {
+            instagramAccountId = igData.instagram_business_account.id;
+            break;
+          }
+        } catch (err) {
+          console.log('No Instagram account for page:', page.name);
+        }
+      }
+      
+      if (!instagramAccountId) {
+        throw new Error('No Instagram Business account found. Please connect your Instagram Business account to your Facebook page.');
+      }
+      
+      setProgress(20);
+      
+      // Calculate date filter
+      const dateFilter = new Date();
+      dateFilter.setMonth(dateFilter.getMonth() - dateRange);
+      const since = Math.floor(dateFilter.getTime() / 1000);
+      
+      // Get Instagram media with filtering
+      const mediaResponse = await fetch(`https://graph.facebook.com/v18.0/${instagramAccountId}/media?fields=id,caption,media_type,permalink,timestamp,like_count,comments_count&since=${since}&limit=${maxPosts}&access_token=${user.accessToken}`);
+      const mediaData = await mediaResponse.json();
+      
+      if (!mediaData.data) {
+        throw new Error('Could not fetch Instagram posts. Make sure your Instagram account is connected.');
+      }
+      
+      setProgress(40);
+      
+      // Filter posts by minimum comments
+      const filteredPosts = mediaData.data.filter(post => 
+        (post.comments_count || 0) >= minComments
+      );
+      
+      // Sort posts based on sortBy setting
+      filteredPosts.sort((a, b) => {
+        switch (sortBy) {
+          case 'comments':
+            return (b.comments_count || 0) - (a.comments_count || 0);
+          case 'likes':
+            return (b.like_count || 0) - (a.like_count || 0);
+          case 'recent':
+            return new Date(b.timestamp) - new Date(a.timestamp);
+          case 'engagement':
+            const aEngagement = (a.like_count || 0) + (a.comments_count || 0);
+            const bEngagement = (b.like_count || 0) + (b.comments_count || 0);
+            return bEngagement - aEngagement;
+          default:
+            return 0;
+        }
+      });
+      
+      setProgress(60);
+      
+      // Analyze posts with rate limiting
+      const analyzedPosts = [];
+      const categoryTotals = {
+        'anti-animal-ag': 0,
+        'questioning': 0,
+        'defensive': 0,
+        'pro-animal-ag': 0,
+        'already-vegan': 0
+      };
+      
+      let totalComments = 0;
+      let totalImpactScore = 0;
+      let totalConversionPotential = 0;
+      let totalResistanceLevel = 0;
+      
+      for (let i = 0; i < Math.min(filteredPosts.length, maxPosts); i++) {
+        const post = filteredPosts[i];
+        
+        try {
+          // Get comments for this post with rate limiting
+          await new Promise(resolve => setTimeout(resolve, 300)); // Rate limiting
+          
+          const commentsResponse = await fetch(`https://graph.facebook.com/v18.0/${post.id}/comments?fields=text,username,timestamp&limit=100&access_token=${user.accessToken}`);
+          const commentsData = await commentsResponse.json();
+          
+          if (commentsData.data && commentsData.data.length > 0) {
+            const postWithComments = {
+              ...post,
+              comments: commentsData.data
+            };
+            
+            const analysis = analyzePost(postWithComments);
+            if (analysis) {
+              analyzedPosts.push({
+                ...postWithComments,
+                analysis
+              });
+              
+              // Aggregate data
+              Object.keys(categoryTotals).forEach(category => {
+                categoryTotals[category] += analysis.categories[category];
+              });
+              
+              totalComments += analysis.total_comments;
+              totalImpactScore += analysis.impact_score;
+              totalConversionPotential += analysis.conversion_potential;
+              totalResistanceLevel += analysis.resistance_level;
+            }
+          }
+          
+          // Update progress
+          const progressPercent = 60 + (i / Math.min(filteredPosts.length, maxPosts)) * 35;
+          setProgress(Math.round(progressPercent));
+          
+        } catch (err) {
+          console.error('Error analyzing post:', err);
+        }
+      }
+      
+      setProgress(95);
+      
+      // Calculate averages
+      const postsAnalyzed = analyzedPosts.length;
+      const avgImpactScore = postsAnalyzed > 0 ? Math.round(totalImpactScore / postsAnalyzed) : 0;
+      const avgConversionPotential = postsAnalyzed > 0 ? Math.round(totalConversionPotential / postsAnalyzed) : 0;
+      const avgResistanceLevel = postsAnalyzed > 0 ? Math.round(totalResistanceLevel / postsAnalyzed) : 0;
+      
+      // Get top performing posts
+      const topPosts = analyzedPosts
+        .sort((a, b) => b.analysis.impact_score - a.analysis.impact_score)
+        .slice(0, 3)
+        .map(post => ({
+          caption: post.caption || 'No caption',
+          impact_score: post.analysis.impact_score,
+          comments_count: post.comments_count || 0,
+          conversion_potential: post.analysis.conversion_potential
+        }));
+      
       const accountData = {
-        total_posts_analyzed: 15,
-        total_comments_analyzed: 342,
+        total_posts_analyzed: postsAnalyzed,
+        total_comments_analyzed: totalComments,
         date_range: `Last ${dateRange} months`,
         filter_settings: {
           min_comments: minComments,
@@ -338,43 +541,19 @@ function App() {
           max_posts: maxPosts
         },
         overall_metrics: {
-          avg_impact_score: 77,
-          avg_conversion_potential: 68,
-          avg_resistance_level: 23,
-          total_engagement: 1247
+          avg_impact_score: avgImpactScore,
+          avg_conversion_potential: avgConversionPotential,
+          avg_resistance_level: avgResistanceLevel,
+          total_engagement: analyzedPosts.reduce((sum, post) => sum + (post.like_count || 0) + (post.comments_count || 0), 0)
         },
-        category_distribution: {
-          'anti-animal-ag': 89,
-          'questioning': 127,
-          'defensive': 78,
-          'pro-animal-ag': 34,
-          'already-vegan': 14
-        },
-        top_performing_posts: [
-          {
-            caption: 'The environmental impact of animal agriculture is staggering 🌍',
-            impact_score: 92,
-            comments_count: 67,
-            conversion_potential: 85
-          },
-          {
-            caption: 'Why I chose to go vegan for the animals 💚',
-            impact_score: 88,
-            comments_count: 45,
-            conversion_potential: 82
-          },
-          {
-            caption: 'Plant-based nutrition myths debunked 🌱',
-            impact_score: 84,
-            comments_count: 38,
-            conversion_potential: 79
-          }
-        ]
+        category_distribution: categoryTotals,
+        top_performing_posts: topPosts
       };
       
       setAccountAnalysis(accountData);
       setAnalyzing(false);
       setProgress(100);
+      
     } catch (err) {
       setError('Analysis failed: ' + err.message);
       setAnalyzing(false);
