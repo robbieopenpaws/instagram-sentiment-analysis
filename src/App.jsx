@@ -937,7 +937,9 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
               <div className="error-message">
                 {error}
               </div>
-                        <div className="post-analysis-section">
+            )}
+
+            <div className="post-analysis-section">
               <h3>📱 Individual Post Analysis</h3>
               
               {availableAccounts.length > 1 && (
