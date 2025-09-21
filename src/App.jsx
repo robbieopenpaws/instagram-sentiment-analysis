@@ -44,7 +44,7 @@ const analyzeAdvocacyImpact = (text) => {
   ];
   
   let maxScore = 0;
-  let category = 'neutral';
+  let category = 'defensive'; // Default to a valid database category
   let advocacy_impact = 'low';
   let conversion_potential = 0.3;
   let resistance_level = 0.3;
@@ -99,13 +99,25 @@ const analyzeAdvocacyImpact = (text) => {
     resistance_level = 0.9;
   }
 
+  // Ensure all values are valid for database
+  const validCategories = ['anti-animal-ag', 'questioning', 'defensive', 'pro-animal-ag', 'already-vegan'];
+  const validImpacts = ['very-low', 'low', 'medium', 'high', 'very-high'];
+  
+  // Safety checks
+  if (!validCategories.includes(category)) {
+    category = 'defensive';
+  }
+  if (!validImpacts.includes(advocacy_impact)) {
+    advocacy_impact = 'low';
+  }
+
   return {
-    category,
-    confidence: Math.min(maxScore / 10, 1),
-    score: maxScore / 10,
-    advocacy_impact,
-    conversion_potential,
-    resistance_level
+    category: category,
+    confidence: Math.min(maxScore / 10, 1) || 0,
+    score: (maxScore / 10) || 0,
+    advocacy_impact: advocacy_impact,
+    conversion_potential: conversion_potential || 0,
+    resistance_level: resistance_level || 0
   };
 };
 
@@ -461,17 +473,24 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
                 // Quick sentiment analysis for database storage
                 const sentiment = analyzeAdvocacyImpact(comment.text || '');
                 
+                // Ensure all values are valid and not null
+                const validCategory = sentiment.category || 'defensive';
+                const validImpact = sentiment.advocacy_impact || 'low';
+                const validScore = typeof sentiment.score === 'number' ? sentiment.score : 0;
+                const validConversion = typeof sentiment.conversion_potential === 'number' ? sentiment.conversion_potential : 0;
+                const validResistance = typeof sentiment.resistance_level === 'number' ? sentiment.resistance_level : 0;
+                
                 return {
                   post_id: targetPost.id,
                   comment_id: comment.id || `${targetPost.id}_${Date.now()}_${index}`,
                   text: comment.text || '',
                   username: comment.username || 'unknown',
                   timestamp: comment.timestamp || new Date().toISOString(),
-                  advocacy_category: sentiment.category || 'neutral',
-                  sentiment_score: sentiment.score || 0,
-                  advocacy_impact: sentiment.advocacy_impact || 'low',
-                  conversion_potential: sentiment.conversion_potential || 0,
-                  resistance_level: sentiment.resistance_level || 0
+                  advocacy_category: validCategory,
+                  sentiment_score: validScore,
+                  advocacy_impact: validImpact,
+                  conversion_potential: validConversion,
+                  resistance_level: validResistance
                 };
               });
               
