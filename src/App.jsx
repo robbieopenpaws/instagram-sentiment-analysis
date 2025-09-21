@@ -265,17 +265,22 @@ function App() {
       let instagramAccountId = null;
       
       // Find Instagram Business Account
+      console.log('Available Facebook pages:', pagesData.data.map(page => ({ id: page.id, name: page.name })));
+      
       for (const page of pagesData.data) {
         try {
           const igResponse = await fetch(`https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account&access_token=${user.accessToken}`);
           const igData = await igResponse.json();
           
+          console.log(`Page "${page.name}" Instagram data:`, igData);
+          
           if (igData.instagram_business_account) {
             instagramAccountId = igData.instagram_business_account.id;
+            console.log('Found Instagram Business Account ID:', instagramAccountId);
             break;
           }
         } catch (err) {
-          console.log('No Instagram account for page:', page.name);
+          console.log('No Instagram account for page:', page.name, err);
         }
       }
       
@@ -291,11 +296,27 @@ function App() {
         throw new Error('Could not fetch Instagram posts. Make sure your Instagram account is connected.');
       }
       
+      // Debug: Log available posts
+      console.log('Available posts:', mediaData.data.map(post => ({
+        id: post.id,
+        permalink: post.permalink,
+        caption: post.caption?.substring(0, 50) + '...'
+      })));
+      console.log('Looking for shortcode:', shortcode);
+      
       // Find the post that matches our URL
       const targetPost = mediaData.data.find(post => post.permalink && post.permalink.includes(shortcode));
       
       if (!targetPost) {
-        throw new Error('Post not found. Make sure this post belongs to your Instagram account and is public.');
+        // More detailed error message
+        const availableShortcodes = mediaData.data
+          .filter(post => post.permalink)
+          .map(post => {
+            const match = post.permalink.match(/\/p\/([A-Za-z0-9_-]+)/);
+            return match ? match[1] : 'unknown';
+          });
+        
+        throw new Error(`Post not found. Looking for shortcode "${shortcode}" but found: ${availableShortcodes.slice(0, 5).join(', ')}${availableShortcodes.length > 5 ? '...' : ''}. Make sure this post belongs to your Instagram account and is public.`);
       }
       
       // Get comments for this post
