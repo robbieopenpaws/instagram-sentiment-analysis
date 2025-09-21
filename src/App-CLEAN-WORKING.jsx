@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import './App.css';
+import './App-CLEAN.css';
 
 const FACEBOOK_APP_ID = '760837916843241';
 
