@@ -132,6 +132,8 @@ function App() {
   const [postUrl, setPostUrl] = useState('');
   const [debugLogs, setDebugLogs] = useState([]);
   const [currentOperation, setCurrentOperation] = useState('');
+  const [availableAccounts, setAvailableAccounts] = useState([]);
+  const [selectedAccountId, setSelectedAccountId] = useState('');
   
   // Filter settings
   const [minComments, setMinComments] = useState(100);
@@ -172,12 +174,16 @@ function App() {
     setLoading(true);
     setError('');
     
-    window.FB.login(function(response) {
+    window.FB.login(async function(response) {
       if (response.authResponse) {
-        setUser({
+        const userData = {
           id: response.authResponse.userID,
           accessToken: response.authResponse.accessToken
-        });
+        };
+        setUser(userData);
+        
+        // Fetch available Instagram accounts
+        await fetchAvailableAccounts(userData.accessToken);
         setLoading(false);
       } else {
         setError('Facebook login failed. Please try again.');
@@ -186,6 +192,48 @@ function App() {
     }, {
       scope: 'instagram_basic,pages_show_list,instagram_manage_insights'
     });
+  };
+
+  // Fetch available Instagram accounts
+  const fetchAvailableAccounts = async (accessToken) => {
+    try {
+      const pagesResponse = await fetch(`https://graph.facebook.com/v18.0/me/accounts?access_token=${accessToken}`);
+      const pagesData = await pagesResponse.json();
+      
+      if (!pagesData.data) return;
+      
+      const accounts = [];
+      
+      for (const page of pagesData.data) {
+        try {
+          const igResponse = await fetch(`https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account&access_token=${accessToken}`);
+          const igData = await igResponse.json();
+          
+          if (igData.instagram_business_account) {
+            // Get Instagram account details
+            const igDetailsResponse = await fetch(`https://graph.facebook.com/v18.0/${igData.instagram_business_account.id}?fields=username,name&access_token=${accessToken}`);
+            const igDetails = await igDetailsResponse.json();
+            
+            accounts.push({
+              id: igData.instagram_business_account.id,
+              username: igDetails.username || 'Unknown',
+              name: igDetails.name || page.name,
+              pageId: page.id,
+              pageName: page.name
+            });
+          }
+        } catch (err) {
+          console.log('Error fetching Instagram details for page:', page.name);
+        }
+      }
+      
+      setAvailableAccounts(accounts);
+      if (accounts.length === 1) {
+        setSelectedAccountId(accounts[0].id);
+      }
+    } catch (err) {
+      console.error('Error fetching Instagram accounts:', err);
+    }
   };
 
   // Generate AI analysis paragraph
@@ -278,6 +326,11 @@ function App() {
         return;
       }
 
+      if (!selectedAccountId) {
+        setError('Please select an Instagram account first');
+        return;
+      }
+
       // Clear previous state
       setLoading(true);
       setAnalyzing(true);
@@ -300,56 +353,11 @@ function App() {
       const shortcode = postIdMatch[1];
       addDebugLog(`Extracted shortcode: ${shortcode}`);
       
-      // First, get Instagram Business Account ID
-      setCurrentOperation('Finding Instagram account...');
-      setProgress(5);
-      addDebugLog('Fetching Facebook pages');
-      const pagesResponse = await fetch(`https://graph.facebook.com/v18.0/me/accounts?access_token=${user.accessToken}`);
-      
-      if (!pagesResponse.ok) {
-        throw new Error(`Facebook API error: ${pagesResponse.status} ${pagesResponse.statusText}`);
-      }
-      
-      const pagesData = await pagesResponse.json();
-      addDebugLog(`Found ${pagesData.data?.length || 0} Facebook pages`);
-      
-      if (!pagesData.data || pagesData.data.length === 0) {
-        throw new Error('No Facebook pages found. You need a Facebook page connected to an Instagram Business account.');
-      }
-      
-      let instagramAccountId = null;
-      
-      // Find Instagram Business Account
-      setCurrentOperation('Connecting to Instagram...');
+      // Use the selected Instagram account
+      setCurrentOperation('Using selected Instagram account...');
       setProgress(10);
-      addDebugLog(`Checking ${pagesData.data.length} Facebook pages for Instagram connection`);
-      
-      for (const page of pagesData.data) {
-        try {
-          addDebugLog(`Checking page: ${page.name} (ID: ${page.id})`);
-          const igResponse = await fetch(`https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account&access_token=${user.accessToken}`);
-          
-          if (!igResponse.ok) {
-            addDebugLog(`Error checking page ${page.name}: ${igResponse.status}`, 'warn');
-            continue;
-          }
-          
-          const igData = await igResponse.json();
-          addDebugLog(`Page "${page.name}" Instagram data: ${JSON.stringify(igData)}`);
-          
-          if (igData.instagram_business_account) {
-            instagramAccountId = igData.instagram_business_account.id;
-            addDebugLog(`Found Instagram Business Account ID: ${instagramAccountId}`);
-            break;
-          }
-        } catch (err) {
-          addDebugLog(`Error checking Instagram for page ${page.name}: ${err.message}`, 'error');
-        }
-      }
-      
-      if (!instagramAccountId) {
-        throw new Error('No Instagram Business account found. Please connect your Instagram Business account to your Facebook page.');
-      }
+      const instagramAccountId = selectedAccountId;
+      addDebugLog(`Using selected Instagram account ID: ${instagramAccountId}`);
       
       // Get Instagram media - fetch more posts to increase chances of finding the target
       const mediaResponse = await fetch(`https://graph.facebook.com/v18.0/${instagramAccountId}/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=100&access_token=${user.accessToken}`);
@@ -487,10 +495,7 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
                   username: comment.username || 'unknown',
                   timestamp: comment.timestamp || new Date().toISOString(),
                   advocacy_category: validCategory,
-                  sentiment_score: validScore,
-                  advocacy_impact: validImpact,
-                  conversion_potential: validConversion,
-                  resistance_level: validResistance
+                  sentiment_score: validScore
                 };
               });
               
@@ -932,10 +937,33 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
               <div className="error-message">
                 {error}
               </div>
-            )}
-
-            <div className="analysis-section">
+                        <div className="post-analysis-section">
               <h3>📱 Individual Post Analysis</h3>
+              
+              {availableAccounts.length > 1 && (
+                <div className="account-selector">
+                  <label>Select Instagram Account:</label>
+                  <select 
+                    value={selectedAccountId} 
+                    onChange={(e) => setSelectedAccountId(e.target.value)}
+                    className="account-select"
+                  >
+                    <option value="">Choose an account...</option>
+                    {availableAccounts.map(account => (
+                      <option key={account.id} value={account.id}>
+                        @{account.username} ({account.name})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              
+              {availableAccounts.length === 1 && (
+                <div className="selected-account">
+                  <span>📸 Using: @{availableAccounts[0].username}</span>
+                </div>
+              )}
+              
               <div className="post-input-section">
                 <input
                   type="text"
@@ -946,13 +974,12 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
                 />
                 <button 
                   onClick={loadInstagramPostFromUrl}
-                  disabled={loading || analyzing}
+                  disabled={loading || analyzing || !selectedAccountId}
                   className="load-post-btn"
                 >
                   {analyzing ? `Analyzing... ${progress}%` : loading ? 'Loading...' : 'Analyze Post'}
                 </button>
-              </div>
-              
+              </div>              
               {analyzing && (
                 <div className="progress-section">
                   <div className="progress-bar">
