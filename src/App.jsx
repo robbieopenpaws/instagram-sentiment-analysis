@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
+import { supabase } from './supabaseClient';
 
 const FACEBOOK_APP_ID = '760837916843241';
 
@@ -117,12 +118,22 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [accountAnalysis, setAccountAnalysis] = useState(null);
   const [postUrl, setPostUrl] = useState('');
+  const [debugLogs, setDebugLogs] = useState([]);
+  const [currentOperation, setCurrentOperation] = useState('');
   
   // Filter settings
   const [minComments, setMinComments] = useState(100);
   const [dateRange, setDateRange] = useState(6);
   const [sortBy, setSortBy] = useState('comments');
   const [maxPosts, setMaxPosts] = useState(50);
+
+  // Add debug logging function
+  const addDebugLog = (message, type = 'info') => {
+    const timestamp = new Date().toLocaleTimeString();
+    const logEntry = `[${timestamp}] ${type.toUpperCase()}: ${message}`;
+    console.log(logEntry);
+    setDebugLogs(prev => [...prev.slice(-20), logEntry]); // Keep last 20 logs
+  };
 
   // Initialize Facebook SDK
   useEffect(() => {
@@ -244,33 +255,51 @@ function App() {
 
   // Load individual post from URL
   const loadInstagramPostFromUrl = async () => {
-    if (!postUrl.trim()) {
-      setError('Please enter an Instagram post URL');
-      return;
-    }
-
-    if (!user || !user.accessToken) {
-      setError('Please login with Facebook first');
-      return;
-    }
-
-    setLoading(true);
-    setAnalyzing(true);
-    setProgress(0);
-    setError('');
-    
     try {
+      if (!postUrl.trim()) {
+        setError('Please enter an Instagram post URL');
+        return;
+      }
+
+      if (!user || !user.accessToken) {
+        setError('Please login with Facebook first');
+        return;
+      }
+
+      // Clear previous state
+      setLoading(true);
+      setAnalyzing(true);
+      setProgress(0);
+      setError('');
+      setDebugLogs([]);
+      setCurrentOperation('Starting analysis...');
+      
+      addDebugLog('Starting Instagram post analysis');
+      addDebugLog(`Post URL: ${postUrl}`);
+      
       // Extract post ID from Instagram URL
+      setCurrentOperation('Extracting post ID...');
+      addDebugLog('Extracting post ID from URL');
       const postIdMatch = postUrl.match(/\/p\/([A-Za-z0-9_-]+)/);
       if (!postIdMatch) {
         throw new Error('Invalid Instagram post URL. Please use format: https://www.instagram.com/p/POST_ID/');
       }
       
       const shortcode = postIdMatch[1];
+      addDebugLog(`Extracted shortcode: ${shortcode}`);
       
       // First, get Instagram Business Account ID
+      setCurrentOperation('Finding Instagram account...');
+      setProgress(5);
+      addDebugLog('Fetching Facebook pages');
       const pagesResponse = await fetch(`https://graph.facebook.com/v18.0/me/accounts?access_token=${user.accessToken}`);
+      
+      if (!pagesResponse.ok) {
+        throw new Error(`Facebook API error: ${pagesResponse.status} ${pagesResponse.statusText}`);
+      }
+      
       const pagesData = await pagesResponse.json();
+      addDebugLog(`Found ${pagesData.data?.length || 0} Facebook pages`);
       
       if (!pagesData.data || pagesData.data.length === 0) {
         throw new Error('No Facebook pages found. You need a Facebook page connected to an Instagram Business account.');
@@ -279,22 +308,30 @@ function App() {
       let instagramAccountId = null;
       
       // Find Instagram Business Account
-      console.log('Available Facebook pages:', pagesData.data.map(page => ({ id: page.id, name: page.name })));
+      setCurrentOperation('Connecting to Instagram...');
+      setProgress(10);
+      addDebugLog(`Checking ${pagesData.data.length} Facebook pages for Instagram connection`);
       
       for (const page of pagesData.data) {
         try {
+          addDebugLog(`Checking page: ${page.name} (ID: ${page.id})`);
           const igResponse = await fetch(`https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account&access_token=${user.accessToken}`);
-          const igData = await igResponse.json();
           
-          console.log(`Page "${page.name}" Instagram data:`, igData);
+          if (!igResponse.ok) {
+            addDebugLog(`Error checking page ${page.name}: ${igResponse.status}`, 'warn');
+            continue;
+          }
+          
+          const igData = await igResponse.json();
+          addDebugLog(`Page "${page.name}" Instagram data: ${JSON.stringify(igData)}`);
           
           if (igData.instagram_business_account) {
             instagramAccountId = igData.instagram_business_account.id;
-            console.log('Found Instagram Business Account ID:', instagramAccountId);
+            addDebugLog(`Found Instagram Business Account ID: ${instagramAccountId}`);
             break;
           }
         } catch (err) {
-          console.log('No Instagram account for page:', page.name, err);
+          addDebugLog(`Error checking Instagram for page ${page.name}: ${err.message}`, 'error');
         }
       }
       
@@ -368,60 +405,132 @@ ${recentPosts}
 Try using a more recent post URL, or contact support if this is a recent post.`);
       }
       
-      // Get ALL comments for this post using pagination with error handling
+      // Fetch and store comments in chunks using Supabase
+      setCurrentOperation('Starting chunked comment fetch...');
       setProgress(20);
-      let allComments = [];
-      let nextUrl = `https://graph.facebook.com/v18.0/${targetPost.id}/comments?fields=text,username,timestamp&limit=100&access_token=${user.accessToken}`;
-      let pageCount = 0;
-      const maxPages = 20; // Limit to prevent infinite loops and memory issues
+      addDebugLog(`Starting chunked fetch for post with ${targetPost.comments_count} total comments`);
       
-      console.log(`Fetching comments for post with ${targetPost.comments_count} total comments...`);
+      // First, clear any existing comments for this post in Supabase
+      const { error: deleteError } = await supabase
+        .from('advocacy_comments')
+        .delete()
+        .eq('post_id', targetPost.id);
+      
+      if (deleteError) {
+        addDebugLog(`Warning: Could not clear existing comments: ${deleteError.message}`, 'warn');
+      }
+      
+      let totalCommentsFetched = 0;
+      let nextUrl = `https://graph.facebook.com/v18.0/${targetPost.id}/comments?fields=text,username,timestamp&limit=100&access_token=${user.accessToken}`;
+      let chunkCount = 0;
+      const maxChunks = 15; // Limit to prevent infinite loops (1500 comments max)
       
       try {
-        while (nextUrl && pageCount < maxPages) {
+        while (nextUrl && chunkCount < maxChunks) {
           try {
-            setProgress(20 + (pageCount / maxPages) * 60); // Progress from 20% to 80%
+            const currentProgress = 20 + (chunkCount / maxChunks) * 60;
+            setProgress(currentProgress);
+            setCurrentOperation(`Fetching chunk ${chunkCount + 1}/${maxChunks}... (${totalCommentsFetched} comments so far)`);
+            addDebugLog(`Fetching chunk ${chunkCount + 1}, total comments so far: ${totalCommentsFetched}`);
             
             const commentsResponse = await fetch(nextUrl);
             
             if (!commentsResponse.ok) {
-              console.error('Comments API response not ok:', commentsResponse.status);
-              break;
+              const errorMsg = `Comments API response not ok: ${commentsResponse.status} ${commentsResponse.statusText}`;
+              addDebugLog(errorMsg, 'error');
+              throw new Error(errorMsg);
             }
             
+            addDebugLog(`Comments API response OK, parsing JSON...`);
             const commentsData = await commentsResponse.json();
             
             if (commentsData.error) {
-              console.error('Comments API error:', commentsData.error);
-              break;
+              const errorMsg = `Comments API error: ${JSON.stringify(commentsData.error)}`;
+              addDebugLog(errorMsg, 'error');
+              throw new Error(errorMsg);
             }
             
             if (commentsData.data && Array.isArray(commentsData.data)) {
-              allComments = allComments.concat(commentsData.data);
-              console.log(`Page ${pageCount + 1}: Fetched ${commentsData.data.length} comments, total: ${allComments.length}`);
+              const chunkComments = commentsData.data;
+              addDebugLog(`Chunk ${chunkCount + 1}: Received ${chunkComments.length} comments`);
+              
+              // Store this chunk in Supabase immediately
+              setCurrentOperation(`Storing chunk ${chunkCount + 1} in database...`);
+              
+              const commentsToStore = chunkComments.map(comment => ({
+                post_id: targetPost.id,
+                comment_id: comment.id || `${targetPost.id}_${Date.now()}_${Math.random()}`,
+                text: comment.text || '',
+                username: comment.username || 'unknown',
+                timestamp: comment.timestamp || new Date().toISOString(),
+                chunk_number: chunkCount + 1
+              }));
+              
+              const { error: insertError } = await supabase
+                .from('advocacy_comments')
+                .insert(commentsToStore);
+              
+              if (insertError) {
+                addDebugLog(`Error storing chunk ${chunkCount + 1}: ${insertError.message}`, 'error');
+                throw new Error(`Failed to store comments in database: ${insertError.message}`);
+              }
+              
+              totalCommentsFetched += chunkComments.length;
+              addDebugLog(`Chunk ${chunkCount + 1}: Stored ${chunkComments.length} comments. Total: ${totalCommentsFetched}`);
+              
+            } else {
+              addDebugLog(`No valid comments data in chunk ${chunkCount + 1}`, 'warn');
             }
             
             // Check if there are more comments to fetch
-            if (commentsData.paging && commentsData.paging.next && commentsData.data.length > 0) {
+            if (commentsData.paging && commentsData.paging.next && commentsData.data && commentsData.data.length > 0) {
               nextUrl = commentsData.paging.next;
-              pageCount++;
+              chunkCount++;
+              addDebugLog(`Has next page, continuing... (chunk ${chunkCount} complete)`);
               // Add delay to respect rate limits
-              await new Promise(resolve => setTimeout(resolve, 300));
+              await new Promise(resolve => setTimeout(resolve, 500));
             } else {
+              addDebugLog('No more pages to fetch');
               nextUrl = null;
             }
             
-          } catch (pageError) {
-            console.error('Error fetching comments page:', pageError);
-            break;
+          } catch (chunkError) {
+            const errorMsg = `Error processing chunk ${chunkCount + 1}: ${chunkError.message}`;
+            addDebugLog(errorMsg, 'error');
+            throw chunkError;
           }
         }
         
-        console.log(`Successfully fetched ${allComments.length} total comments from ${pageCount} pages`);
+        addDebugLog(`Successfully fetched and stored ${totalCommentsFetched} total comments in ${chunkCount} chunks`);
+        
+        // Now retrieve all comments from Supabase for analysis
+        setCurrentOperation('Loading comments from database for analysis...');
+        setProgress(85);
+        
+        const { data: storedComments, error: fetchError } = await supabase
+          .from('advocacy_comments')
+          .select('*')
+          .eq('post_id', targetPost.id)
+          .order('timestamp', { ascending: true });
+        
+        if (fetchError) {
+          throw new Error(`Failed to retrieve comments from database: ${fetchError.message}`);
+        }
+        
+        addDebugLog(`Retrieved ${storedComments?.length || 0} comments from database for analysis`);
+        
+        // Convert Supabase format back to Instagram format for analysis
+        const allComments = (storedComments || []).map(comment => ({
+          text: comment.text,
+          username: comment.username,
+          timestamp: comment.timestamp,
+          id: comment.comment_id
+        }));
         
       } catch (fetchError) {
-        console.error('Error in comment fetching process:', fetchError);
-        // Continue with whatever comments we have
+        const errorMsg = `Error in chunked comment fetching: ${fetchError.message}`;
+        addDebugLog(errorMsg, 'error');
+        throw fetchError;
       }
       
       setProgress(90);
@@ -445,8 +554,13 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
       setAnalyzing(false);
       
     } catch (err) {
+      const errorMessage = `Failed to load post: ${err.message}`;
+      addDebugLog(`FATAL ERROR: ${err.message}`, 'error');
+      addDebugLog(`Error stack: ${err.stack}`, 'error');
       console.error('Error in loadInstagramPostFromUrl:', err);
-      setError('Failed to load post: ' + err.message);
+      
+      setError(errorMessage);
+      setCurrentOperation('Error occurred');
       setLoading(false);
       setAnalyzing(false);
       setProgress(0);
@@ -816,7 +930,20 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
                   <div className="progress-bar">
                     <div className="progress-fill" style={{ width: `${progress}%` }}></div>
                   </div>
-                  <p>Fetching and analyzing comments... {progress}%</p>
+                  <p>{currentOperation} {progress}%</p>
+                </div>
+              )}
+              
+              {debugLogs.length > 0 && (
+                <div className="debug-section">
+                  <h4>🔍 Debug Logs</h4>
+                  <div className="debug-logs">
+                    {debugLogs.slice(-10).map((log, index) => (
+                      <div key={index} className={`debug-log ${log.includes('ERROR') ? 'error' : log.includes('WARN') ? 'warn' : 'info'}`}>
+                        {log}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
