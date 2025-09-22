@@ -428,11 +428,14 @@ ${recentPosts}
 
 Try using a more recent post URL, or contact support if this is a recent post.`);
       }
+        // Step 4: Fetch all comments using chunked approach
+      setCurrentOperation('Fetching comments in chunks...');
+      setProgress(30);
       
-      // Fetch and store comments in chunks using Supabase
-      setCurrentOperation('Starting chunked comment fetch...');
-      setProgress(20);
-      addDebugLog(`Starting chunked fetch for post with ${targetPost.comments_count} total comments`);
+      let allComments = []; // Declare outside try block to fix scope issue
+      
+      try {
+        addDebugLog(`Starting chunked fetch for post with ${targetPost.comments_count} total comments`);
       
       // First, clear any existing comments for this post in Supabase
       const { error: deleteError } = await supabase
@@ -557,7 +560,7 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
         addDebugLog(`Retrieved ${storedComments?.length || 0} comments from database for analysis`);
         
         // Convert Supabase format back to Instagram format for analysis
-        const allComments = (storedComments || []).map(comment => ({
+        allComments = (storedComments || []).map(comment => ({
           text: comment.text,
           username: comment.username,
           timestamp: comment.timestamp,
