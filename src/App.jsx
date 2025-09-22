@@ -220,6 +220,7 @@ function App() {
       addDebugLog(`Using selected Instagram account ID: ${instagramAccountId}`);
       
       // Step 3: Get Instagram media - fetch more posts with pagination
+      addDebugLog('Starting enhanced post fetching with pagination...');
       let allPosts = [];
       let postsNextUrl = `https://graph.facebook.com/v18.0/${instagramAccountId}/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=100&access_token=${user.accessToken}`;
       let pageCount = 0;
