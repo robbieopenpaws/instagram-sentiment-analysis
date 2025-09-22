@@ -221,15 +221,15 @@ function App() {
       
       // Step 3: Get Instagram media - fetch more posts with pagination
       let allPosts = [];
-      let nextUrl = `https://graph.facebook.com/v18.0/${instagramAccountId}/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=100&access_token=${user.accessToken}`;
+      let postsNextUrl = `https://graph.facebook.com/v18.0/${instagramAccountId}/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=100&access_token=${user.accessToken}`;
       let pageCount = 0;
       
       // Fetch up to 500 posts (5 pages) to find older content
-      while (nextUrl && pageCount < 5) {
+      while (postsNextUrl && pageCount < 5) {
         pageCount++;
         addDebugLog(`Fetching posts page ${pageCount}...`);
         
-        const mediaResponse = await fetch(nextUrl);
+        const mediaResponse = await fetch(postsNextUrl);
         
         if (!mediaResponse.ok) {
           throw new Error(`Instagram API error: ${mediaResponse.status} ${mediaResponse.statusText}`);
@@ -243,8 +243,8 @@ function App() {
         }
         
         // Check for next page
-        nextUrl = mediaData.paging?.next || null;
-        if (!nextUrl) {
+        postsNextUrl = mediaData.paging?.next || null;
+        if (!postsNextUrl) {
           addDebugLog('No more pages of posts to fetch');
           break;
         }
