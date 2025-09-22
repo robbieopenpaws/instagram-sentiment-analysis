@@ -573,6 +573,7 @@ Try using a more recent post URL, or contact support if this is a recent post.`)
         throw fetchError;
       }
       
+      // Step 5: Create post object and complete analysis
       setProgress(90);
       
       const post = {
