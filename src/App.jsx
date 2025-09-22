@@ -225,8 +225,8 @@ function App() {
       let postsNextUrl = `https://graph.facebook.com/v18.0/${instagramAccountId}/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=100&access_token=${user.accessToken}`;
       let pageCount = 0;
       
-      // Fetch up to 500 posts (5 pages) to find older content
-      while (postsNextUrl && pageCount < 5) {
+      // Fetch up to 1000 posts (10 pages) to find older content
+      while (postsNextUrl && pageCount < 10) {
         pageCount++;
         addDebugLog(`Fetching posts page ${pageCount}...`);
         
@@ -254,7 +254,7 @@ function App() {
         await new Promise(resolve => setTimeout(resolve, 200));
       }
       
-      addDebugLog(`Total posts fetched: ${allPosts.length} across ${pageCount} pages`);
+      addDebugLog(`Total posts fetched: ${allPosts.length} across ${pageCount} pages (searched up to 1000 posts)`);
       
       if (allPosts.length === 0) {
         throw new Error('No posts found in Instagram account');
