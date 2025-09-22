@@ -219,17 +219,43 @@ function App() {
       const instagramAccountId = selectedAccountId;
       addDebugLog(`Using selected Instagram account ID: ${instagramAccountId}`);
       
-      // Step 3: Get Instagram media
-      const mediaResponse = await fetch(`https://graph.facebook.com/v18.0/${instagramAccountId}/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=100&access_token=${user.accessToken}`);
+      // Step 3: Get Instagram media - fetch more posts with pagination
+      let allPosts = [];
+      let nextUrl = `https://graph.facebook.com/v18.0/${instagramAccountId}/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=100&access_token=${user.accessToken}`;
+      let pageCount = 0;
       
-      if (!mediaResponse.ok) {
-        throw new Error(`Instagram API error: ${mediaResponse.status} ${mediaResponse.statusText}`);
+      // Fetch up to 500 posts (5 pages) to find older content
+      while (nextUrl && pageCount < 5) {
+        pageCount++;
+        addDebugLog(`Fetching posts page ${pageCount}...`);
+        
+        const mediaResponse = await fetch(nextUrl);
+        
+        if (!mediaResponse.ok) {
+          throw new Error(`Instagram API error: ${mediaResponse.status} ${mediaResponse.statusText}`);
+        }
+        
+        const mediaData = await mediaResponse.json();
+        
+        if (mediaData.data && mediaData.data.length > 0) {
+          allPosts = allPosts.concat(mediaData.data);
+          addDebugLog(`Page ${pageCount}: Found ${mediaData.data.length} posts. Total: ${allPosts.length}`);
+        }
+        
+        // Check for next page
+        nextUrl = mediaData.paging?.next || null;
+        if (!nextUrl) {
+          addDebugLog('No more pages of posts to fetch');
+          break;
+        }
+        
+        // Add delay between requests
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
       
-      const mediaData = await mediaResponse.json();
-      addDebugLog(`Found ${mediaData.data?.length || 0} posts in Instagram account`);
+      addDebugLog(`Total posts fetched: ${allPosts.length} across ${pageCount} pages`);
       
-      if (!mediaData.data || mediaData.data.length === 0) {
+      if (allPosts.length === 0) {
         throw new Error('No posts found in Instagram account');
       }
       
@@ -237,13 +263,14 @@ function App() {
       let targetPost = null;
       const shortcodes = [];
       
-      for (const post of mediaData.data) {
+      for (const post of allPosts) {
         if (post.permalink) {
           const postShortcode = post.permalink.match(/\/p\/([A-Za-z0-9_-]+)/);
           if (postShortcode) {
             shortcodes.push(postShortcode[1]);
             if (postShortcode[1] === shortcode) {
               targetPost = post;
+              addDebugLog(`Found target post! Date: ${new Date(post.timestamp).toLocaleDateString()}, Comments: ${post.comments_count}`);
               break;
             }
           }
@@ -251,7 +278,7 @@ function App() {
       }
       
       if (!targetPost) {
-        const recentPosts = mediaData.data.slice(0, 5).map(post => {
+        const recentPosts = allPosts.slice(0, 10).map(post => {
           const postDate = new Date(post.timestamp).toLocaleDateString();
           const caption = post.caption ? post.caption.substring(0, 50) + '...' : 'No caption';
           return `• ${postDate}: "${caption}" (${post.comments_count || 0} comments)`;
